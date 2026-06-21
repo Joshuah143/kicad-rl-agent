@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kicad-rl-agent"
+version = "0.1.0"
+description = "RL loop that trains a Gemma model (served by Fireworks AI) to emit a constrained circuit DSL compiled into KiCad schematics, scored by deterministic validators + an optional LLM critic."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "kicad-rl-agent" }]
+dependencies = [
+    "pydantic>=2",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# 'requests' is only needed to talk to the Fireworks REST endpoint (LLM critic + RL policy).
+fireworks = ["requests"]
+# 'modal' is only needed to run KiCad + validators in the Modal sandbox.
+modal = ["modal"]
+# 'cairosvg' is only needed for high-fidelity SVG -> PDF rendering of the visual.
+pdf = ["cairosvg"]
+# developer tooling
+dev = ["pytest"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

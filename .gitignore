@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+runs/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Local secrets (Fireworks API key etc.)
+.env
+.env.*
+!.env.example

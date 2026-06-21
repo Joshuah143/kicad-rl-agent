@@ -1,0 +1,13 @@
+# Core runtime (mock + local paths run with just these two):
+pydantic>=2
+pyyaml
+
+# Fireworks AI REST client (LLM critic + RL policy sampling):
+requests
+
+# Developer / test tooling:
+pytest
+
+# Optional extras (NOT installed here; install on demand):
+#   modal      -> run KiCad + validators in the Modal sandbox  (pip install modal)
+#   cairosvg   -> high-fidelity SVG -> PDF rendering           (pip install cairosvg)

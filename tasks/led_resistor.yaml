@@ -1,0 +1,21 @@
+name: led_resistor
+description: A single current-limited LED off a supply rail.
+requirements:
+  - "One LED with a series current-limiting resistor"
+  - "LED cathode returns to GND"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 0.5
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  min_hand_solderable: "0603"
+  max_bom_cost_usd: 0.50
+allowed_parts:
+  - resistor_0603
+  - led_0603
+  - test_point_smd

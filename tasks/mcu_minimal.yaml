@@ -1,0 +1,23 @@
+name: mcu_minimal
+description: A minimal STM32F0 microcontroller with decoupling and reset network.
+requirements:
+  - "STM32F030F4 powered from +3V3"
+  - "Decoupling capacitor on VDD to GND"
+  - "Reset network on NRST (pullup + capacitor)"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 0.5
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  min_hand_solderable: "0603"
+  max_bom_cost_usd: 2.50
+allowed_parts:
+  - mcu_stm32
+  - resistor_0603
+  - cap_0603_100n
+  - test_point_smd
