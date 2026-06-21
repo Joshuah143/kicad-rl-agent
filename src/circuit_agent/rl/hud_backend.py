@@ -21,8 +21,31 @@ needs to import any HUD package.
 
 from __future__ import annotations
 
+import json
+import os
+import pathlib
+import re
 from abc import ABC, abstractmethod
 from typing import Any, Optional
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_think(text: str) -> str:
+    """Remove ``<think>...</think>`` reasoning blocks emitted by Qwen-style models.
+
+    ``kicad-rl-8b`` (Qwen3-8B) wraps its chain-of-thought in ``<think>`` tags
+    before the real answer; an unterminated block (truncated output) is dropped
+    from the first opening tag. Returns the visible answer text, stripped.
+    """
+    if not text:
+        return ""
+    cleaned = _THINK_RE.sub("", text)
+    # Drop a dangling, unterminated <think> with no closing tag.
+    lower = cleaned.lower()
+    if "<think>" in lower and "</think>" not in lower:
+        cleaned = cleaned[: lower.index("<think>")]
+    return cleaned.strip()
 
 
 class RLBackend(ABC):
@@ -108,36 +131,115 @@ class MockBackend(RLBackend):
         return self._log
 
 
-_HUD_MESSAGE = (
-    "HUDBackend is a stub: the HUD reset/step RL environment integration is not "
-    "implemented in this repository. The intended design wraps a HUD-compatible "
-    "environment whose `env.reset()` yields the task prompt and whose `env.step()` "
-    "submits a candidate DSL program and returns the deterministic reward computed "
-    "by circuit_agent.validators.reward.compute_reward. Until that environment "
-    "exists, use a working backend instead:\n"
-    "  --backend mock       (fully offline; draws from the reference examples)\n"
-    "  --backend fireworks  (samples a Fireworks-served policy model; requires "
-    "FIREWORKS_API_KEY and the optional 'requests' dependency)."
-)
+_DEFAULT_HUD_DATASET_PATH = os.path.join("out", "hud_dataset.jsonl")
 
 
 class HUDBackend(RLBackend):
-    """Documented stub for a HUD / HUD-compatible RL environment backend.
+    """Policy backend that samples a custom model from the HUD model gateway.
 
-    The constructor accepts and stores arbitrary configuration so the rest of the
-    system can construct it uniformly, but :meth:`sample` and :meth:`update` raise
-    :class:`NotImplementedError` with an actionable message. This keeps the HUD
-    interface seam in place without pulling any HUD package into the import graph.
+    The HUD gateway is OpenAI-compatible, so this reuses the same chat client as
+    the Fireworks backend, pointed at the HUD base URL with the HUD API key.
+    Completions from Qwen-style trainables (e.g. ``kicad-rl-8b``) may include
+    ``<think>`` reasoning blocks, which are stripped before code extraction.
+
+    Parameters
+    ----------
+    settings:
+        Runtime settings carrying ``hud_api_key`` / ``hud_base_url``. When
+        ``None`` it is lazily loaded from the environment.
+    model:
+        HUD gateway model NAME (not UUID). Defaults to ``kicad-rl-8b``.
+    temperature, max_tokens:
+        Sampling parameters forwarded to the gateway.
+    dataset_path:
+        Where :meth:`update` appends graded rollout rows (JSONL).
     """
 
-    def __init__(self, **config: Any) -> None:
+    def __init__(
+        self,
+        settings: Optional[Any] = None,
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 8192,
+        dataset_path: Optional[str] = None,
+        **config: Any,
+    ) -> None:
+        if settings is None:
+            from circuit_agent.config import load_settings
+
+            settings = load_settings()
+        from circuit_agent.config import DEFAULT_HUD_POLICY_MODEL, resolve_hud_model
+
+        self.settings = settings
+        self.model = resolve_hud_model(model) if model else DEFAULT_HUD_POLICY_MODEL
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.dataset_path = dataset_path or _DEFAULT_HUD_DATASET_PATH
         self.config: dict[str, Any] = dict(config)
+        self._client = None
 
-    def sample(self, prompt: str, n: int) -> list[str]:  # noqa: D401 - stub
-        raise NotImplementedError(_HUD_MESSAGE)
+    def _get_client(self):
+        if self._client is None:
+            from circuit_agent.infra.fireworks_client import FireworksClient
 
-    def update(self, samples: list[dict]) -> None:  # noqa: D401 - stub
-        raise NotImplementedError(_HUD_MESSAGE)
+            self._client = FireworksClient.from_hud(self.settings)
+        return self._client
+
+    def sample(self, prompt: str, n: int) -> list[str]:
+        """Sample ``n`` candidate programs for one combined prompt."""
+        if n <= 0:
+            return []
+        client = self._get_client()
+        completions = client.chat(
+            self.model,
+            [{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            n=n,
+        )
+        return [self.extract_code(c) for c in completions]
+
+    def sample_chat(self, system: str, user: str, n: int) -> list[str]:
+        """Sample ``n`` completions from an explicit system + user message pair."""
+        if n <= 0:
+            return []
+        messages: list[dict] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        client = self._get_client()
+        completions = client.chat(
+            self.model,
+            messages,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            n=n,
+        )
+        return [self.extract_code(c) for c in completions]
+
+    def update(self, samples: list[dict]) -> None:
+        """Append graded rollouts to a JSONL dataset (no online weight update)."""
+        if not samples:
+            return
+        path = pathlib.Path(self.dataset_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            for rec in samples:
+                row = {
+                    "prompt": rec.get("prompt", ""),
+                    "completion": rec.get("completion", rec.get("code", "")),
+                    "reward": float(rec.get("reward", 0.0) or 0.0),
+                }
+                fh.write(json.dumps(row, ensure_ascii=False))
+                fh.write("\n")
+
+    @staticmethod
+    def extract_code(text: str) -> str:
+        """Strip ``<think>`` blocks then pull Python from a fenced block."""
+        from circuit_agent.rl.fireworks_backend import FireworksBackend
+
+        return FireworksBackend.extract_code(strip_think(text))
 
 
-__all__ = ["RLBackend", "MockBackend", "HUDBackend"]
+__all__ = ["RLBackend", "MockBackend", "HUDBackend", "strip_think"]

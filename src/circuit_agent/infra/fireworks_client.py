@@ -48,6 +48,24 @@ class FireworksClient:
             timeout=settings.request_timeout,
         )
 
+    @classmethod
+    def from_hud(cls, settings: "Settings") -> "FireworksClient":
+        """Build a client pointed at the HUD model gateway (OpenAI-compatible).
+
+        The gateway speaks the same ``/chat/completions`` protocol, so the same
+        client works; only the base URL and key differ. Raises if no HUD key.
+        """
+        if not settings.hud_api_key:
+            raise FireworksError(
+                "No HUD API key configured. Set HUD_API_KEY in the environment "
+                "(from hud.ai/settings/api-keys) before using the HUD backend/chat."
+            )
+        return cls(
+            api_key=settings.hud_api_key,
+            base_url=settings.hud_base_url,
+            timeout=settings.request_timeout,
+        )
+
     def chat(
         self,
         model: str,
@@ -114,4 +132,9 @@ def available(settings) -> bool:
     return bool(getattr(settings, "fireworks_api_key", None))
 
 
-__all__ = ["FireworksError", "FireworksClient", "available"]
+# The client is a generic OpenAI-compatible chat client; this alias documents
+# that it is reused verbatim for the HUD gateway.
+OpenAIChatClient = FireworksClient
+
+
+__all__ = ["FireworksError", "FireworksClient", "OpenAIChatClient", "available"]

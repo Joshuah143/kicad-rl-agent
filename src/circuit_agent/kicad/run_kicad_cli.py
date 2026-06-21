@@ -117,3 +117,249 @@ def export_pdf(sch_path: str, out_pdf: str) -> Optional[str]:
     if proc.returncode != 0:
         return None
     return out_pdf if shutil.os.path.exists(out_pdf) else None
+
+
+def export_pcb_svg(
+    pcb_path: str,
+    out_svg: str,
+    *,
+    layers: str = "F.Cu,F.SilkS,Edge.Cuts,B.Cu",
+) -> Optional[str]:
+    """Export PCB layer stack to a single SVG; return path or None."""
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "export", "svg",
+                "--output", out_svg,
+                "--layers", layers,
+                "--page-size-mode", "2",
+                "--exclude-drawing-sheet",
+                "--mode-single",
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_svg if shutil.os.path.exists(out_svg) else None
+
+
+def export_pcb_glb(pcb_path: str, out_glb: str) -> Optional[str]:
+    """Export an interactive 3D GLB model from a PCB; return path or None."""
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "export", "glb",
+                "--output", out_glb,
+                "--include-tracks",
+                "--include-pads",
+                "--include-silkscreen",
+                "--include-soldermask",
+                "--force",
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_glb if shutil.os.path.exists(out_glb) else None
+
+
+def export_pcb_render_png(
+    pcb_path: str,
+    out_png: str,
+    *,
+    width: int = 1600,
+    height: int = 900,
+    rotate: str = "325,0,330",
+) -> Optional[str]:
+    """Render KiCad 3D view to PNG (fallback when GLB unavailable).
+
+    Note: ``--rotate`` values must be non-negative (the CLI parser treats a
+    leading ``-`` as a flag), so use equivalents like ``325`` instead of ``-35``.
+    """
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "render",
+                "--output", out_png,
+                "--width", str(width),
+                "--height", str(height),
+                "--quality", "high",
+                "--side", "top",
+                "--background", "transparent",
+                # follow_pcb_editor uses the editor's green board theme -> a proper
+                # green PCB instead of the bare-FR4 brown default. (KiCad 9.0.2's
+                # render predates --use-board-stackup-colors, so this is how we
+                # control board appearance.)
+                "--preset", "follow_pcb_editor",
+                "--perspective",
+                "--rotate", rotate,
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_png if shutil.os.path.exists(out_png) else None
+
+
+# Standard fabrication layer set (2-layer board): copper, mask, silk, paste, edge.
+_FAB_GERBER_LAYERS = "F.Cu,B.Cu,F.Mask,B.Mask,F.SilkS,B.SilkS,F.Paste,B.Paste,Edge.Cuts"
+
+
+def export_gerbers(
+    pcb_path: str,
+    out_dir: str,
+    *,
+    layers: str = _FAB_GERBER_LAYERS,
+) -> Optional[str]:
+    """Plot fabrication Gerbers (X2) for ``pcb_path`` into ``out_dir``.
+
+    Returns ``out_dir`` on success or ``None``.
+    """
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    shutil.os.makedirs(out_dir, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "export", "gerbers",
+                "--output", out_dir,
+                "--layers", layers,
+                "--no-protel-ext",
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_dir
+
+
+def export_drill(pcb_path: str, out_dir: str) -> Optional[str]:
+    """Generate Excellon drill files (+ a drill map) into ``out_dir``."""
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    shutil.os.makedirs(out_dir, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "export", "drill",
+                "--output", out_dir + shutil.os.sep,
+                "--format", "excellon",
+                "--excellon-separate-th",
+                "--generate-map",
+                "--map-format", "gerberx2",
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_dir
+
+
+def export_pos(pcb_path: str, out_csv: str) -> Optional[str]:
+    """Generate a pick-and-place position file (CSV)."""
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "export", "pos",
+                "--output", out_csv,
+                "--side", "both",
+                "--format", "csv",
+                "--units", "mm",
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_csv if shutil.os.path.exists(out_csv) else None
+
+
+def export_step(pcb_path: str, out_step: str) -> Optional[str]:
+    """Export a STEP mechanical model of the board."""
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                cli, "pcb", "export", "step",
+                "--output", out_step,
+                "--no-dnp",
+                "--force",
+                pcb_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return out_step if shutil.os.path.exists(out_step) else None
+
+
+def run_pcb_drc(pcb_path: str, out_report: str, fmt: str = "json") -> ERCRun:
+    """Run ``kicad-cli pcb drc``; never raises. Reuses the ERCRun shape."""
+    cli = find_kicad_cli()
+    if not cli or not shutil.os.path.exists(pcb_path):
+        return ERCRun(ok=False, report_path=None, returncode=-1, stdout="", stderr="kicad-cli/pcb not found")
+    try:
+        proc = subprocess.run(
+            [cli, "pcb", "drc", "--output", out_report, "--format", fmt, pcb_path],
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return ERCRun(ok=False, report_path=None, returncode=-1, stdout="", stderr=str(exc))
+    return ERCRun(
+        ok=proc.returncode in (0, 5),
+        report_path=out_report,
+        returncode=proc.returncode,
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+    )

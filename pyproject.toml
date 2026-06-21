@@ -22,6 +22,8 @@ fireworks = ["requests"]
 modal = ["modal"]
 # 'cairosvg' is only needed for high-fidelity SVG -> PDF rendering of the visual.
 pdf = ["cairosvg"]
+# 'streamlit' powers the local demo GUI (gui/app.py): `streamlit run gui/app.py`.
+gui = ["streamlit>=1.33"]
 # developer tooling (kept as an extra for `pip install -e .[dev]` compatibility)
 dev = ["pytest"]
 

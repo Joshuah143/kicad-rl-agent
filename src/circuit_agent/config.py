@@ -18,16 +18,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-# Friendly alias -> Fireworks model id. These are placeholders; edit to match the
-# model ids your Fireworks account can actually serve.
+# Friendly alias -> Fireworks model id. Point these at model ids your Fireworks
+# account can actually serve (check the serverless catalog at app.fireworks.ai).
 MODEL_ALIASES: dict[str, str] = {
-    "gemma4": "accounts/fireworks/models/gemma-3-27b-it",
-    "gemma": "accounts/fireworks/models/gemma-3-27b-it",
-    "critic": "accounts/fireworks/models/qwen2p5-72b-instruct",
+    # Current working serverless defaults (2026 catalog):
+    "policy": "accounts/fireworks/models/kimi-k2p7-code",
+    "kimi": "accounts/fireworks/models/kimi-k2p7-code",
+    "qwen": "accounts/fireworks/models/qwen3p7-plus",
+    "critic": "accounts/fireworks/models/qwen3p7-plus",
+    # Legacy aliases kept working (Gemma is no longer on Fireworks serverless):
+    "gemma4": "accounts/fireworks/models/kimi-k2p7-code",
+    "gemma": "accounts/fireworks/models/kimi-k2p7-code",
 }
 
 # Default Fireworks OpenAI-compatible REST base url.
 DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
+
+# HUD model gateway (OpenAI-compatible). NOTE: the working endpoint is the beta
+# host with a /v1 suffix -- the public docs list ``inference.hud.ai`` which
+# currently returns 401 for gateway keys. Override with ``HUD_BASE_URL`` if HUD
+# promotes the gateway out of beta.
+DEFAULT_HUD_BASE_URL = "https://inference.beta.hud.ai/v1"
+
+# Friendly alias -> HUD gateway model NAME (not UUID). HUD model names have no
+# "/", so they pass through resolve_model unchanged; these are conveniences.
+HUD_MODEL_ALIASES: dict[str, str] = {
+    "policy": "kicad-rl-8b",      # the custom trained circuit policy
+    "kicad": "kicad-rl-8b",
+    "chat": "claude-sonnet-4-5",  # frontier model for the design conversation
+}
+
+# Default chat model used by the Design conversation (clarifying questions).
+DEFAULT_HUD_CHAT_MODEL = "claude-sonnet-4-5"
+# Default policy model used to generate circuit programs.
+DEFAULT_HUD_POLICY_MODEL = "kicad-rl-8b"
 
 
 def resolve_model(alias_or_id: str) -> str:
@@ -66,6 +90,9 @@ class Settings:
     policy_model: str = field(default_factory=lambda: resolve_model("gemma4"))
     critic_model: str = field(default_factory=lambda: resolve_model("critic"))
     request_timeout: float = 120.0
+    # HUD model gateway (OpenAI-compatible). ``hud_api_key`` is ``None`` when unset.
+    hud_api_key: Optional[str] = None
+    hud_base_url: str = DEFAULT_HUD_BASE_URL
 
 
 _DOTENV_LOADED = False
@@ -145,7 +172,20 @@ def load_settings(model_alias: str = "gemma4", critic_alias: str = "critic") -> 
         fireworks_base_url=base_url,
         policy_model=resolve_model(model_alias),
         critic_model=resolve_model(critic_alias),
+        hud_api_key=os.environ.get("HUD_API_KEY") or None,
+        hud_base_url=os.environ.get("HUD_BASE_URL") or DEFAULT_HUD_BASE_URL,
     )
+
+
+def resolve_hud_model(alias_or_name: str) -> str:
+    """Resolve a friendly alias to a HUD gateway model NAME.
+
+    HUD model names contain no ``/`` and are used verbatim by the gateway, so an
+    unknown value is returned unchanged. Known aliases (``policy``/``kicad`` ->
+    ``kicad-rl-8b``, ``chat`` -> ``claude-sonnet-4-5``) are conveniences.
+    """
+    value = (alias_or_name or "").strip()
+    return HUD_MODEL_ALIASES.get(value, value)
 
 
 def have_fireworks(settings: Settings) -> bool:
@@ -153,12 +193,23 @@ def have_fireworks(settings: Settings) -> bool:
     return bool(settings.fireworks_api_key)
 
 
+def have_hud(settings: Settings) -> bool:
+    """Return ``True`` when a HUD gateway API key is configured."""
+    return bool(settings.hud_api_key)
+
+
 __all__ = [
     "MODEL_ALIASES",
+    "HUD_MODEL_ALIASES",
     "load_dotenv",
     "DEFAULT_FIREWORKS_BASE_URL",
+    "DEFAULT_HUD_BASE_URL",
+    "DEFAULT_HUD_CHAT_MODEL",
+    "DEFAULT_HUD_POLICY_MODEL",
     "Settings",
     "resolve_model",
+    "resolve_hud_model",
     "load_settings",
     "have_fireworks",
+    "have_hud",
 ]

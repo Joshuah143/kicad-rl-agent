@@ -18,7 +18,7 @@ import os
 import pathlib
 from typing import Optional
 
-from circuit_agent.config import Settings
+from circuit_agent.config import Settings, resolve_model
 from circuit_agent.rl.hud_backend import RLBackend
 
 _DEFAULT_DATASET_PATH = os.path.join("out", "rft_dataset.jsonl")
@@ -52,7 +52,7 @@ class FireworksBackend(RLBackend):
         dataset_path: Optional[str] = None,
     ) -> None:
         self.settings = settings
-        self.model = model or settings.policy_model
+        self.model = resolve_model(model) if model else settings.policy_model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.dataset_path = dataset_path or _DEFAULT_DATASET_PATH

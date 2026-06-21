@@ -57,7 +57,7 @@ def make_backend(
         if settings is None:
             from circuit_agent.config import load_settings
 
-            settings = load_settings(model or "gemma4")
+            settings = load_settings(model or "policy")
         return FireworksBackend(
             settings,
             model=model,
@@ -67,7 +67,21 @@ def make_backend(
         )
 
     if key == "hud":
-        return HUDBackend(**kw)
+        if settings is None:
+            from circuit_agent.config import load_settings
+
+            settings = load_settings()
+        # kicad-rl-8b is a Qwen3 reasoning model: it spends tokens inside
+        # <think> before emitting code, so enforce a generous floor to avoid
+        # truncating the answer away.
+        hud_max_tokens = max(max_tokens, 8192)
+        return HUDBackend(
+            settings,
+            model=model,
+            temperature=temperature,
+            max_tokens=hud_max_tokens,
+            dataset_path=kw.get("dataset_path"),
+        )
 
     raise ValueError(
         f"Unknown RL backend {name!r}. Choose one of: {', '.join(_CHOICES)}."
