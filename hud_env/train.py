@@ -73,9 +73,10 @@ import asyncio
 # -----------------------------------------------------------------------------
 # Constants — EDIT THESE.
 # -----------------------------------------------------------------------------
-# A HUD gateway TRAINABLE model name. Fork one first:
-#   hud models fork Qwen/Qwen3-4B --name kicad-rl-qwen3-4b
-MODEL = "kicad-rl-qwen3-4b"
+# A HUD gateway TRAINABLE model name. Forked from Qwen/Qwen3.5-4B (Tinker) via:
+#   hud models fork Qwen/Qwen3.5-4B --name kicad-rl
+# (Re-fork a different trainable base and change this slug to switch policy model.)
+MODEL = "kicad-rl"
 
 # Remote taskset name on the HUD platform (used with --remote). Push tasks with
 #   hud sync tasks.py
