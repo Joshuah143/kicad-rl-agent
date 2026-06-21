@@ -51,14 +51,29 @@ def allowed_parts_block(task: TaskSpec) -> str:
     if not task.allowed_parts:
         return "Allowed parts: (no restriction; use sensible standard parts)."
     from circuit_agent.data import parts_db
+    from circuit_agent.data import symbols as symbols_db
 
-    lines = ["Allowed parts (catalog key -> spec):"]
+    lines = [
+        "Allowed parts (catalog key -> spec). 'pins=[...]' lists the EXACT pin "
+        "names/numbers you must wire to (use these, not made-up pins):"
+    ]
     for key in task.allowed_parts:
         spec = parts_db.resolve_part(key)
         if spec:
+            symbol = spec.get("symbol")
+            pin_labels: list[str] = []
+            for p in symbols_db.symbol_pins(symbol) if symbol else ():
+                # Wire by pin NUMBER (what connect() expects); show the pin NAME
+                # too when it carries meaning (e.g. "2=VIN", "1=SW", "A", "K").
+                name = (p.name or "").strip()
+                if name and name not in ("~", p.number):
+                    pin_labels.append(f"{p.number}={name}")
+                else:
+                    pin_labels.append(p.number)
+            pins_str = "[" + ",".join(pin_labels) + "]" if pin_labels else "[]"
             lines.append(
-                f"  - {key}: symbol={spec.get('symbol')} footprint={spec.get('footprint')} "
-                f"value={spec.get('value')} pkg={spec.get('package_type')}"
+                f"  - {key}: symbol={symbol} footprint={spec.get('footprint')} "
+                f"value={spec.get('value')} pkg={spec.get('package_type')} pins={pins_str}"
             )
         else:
             lines.append(f"  - {key}: (unknown key; use a sensible equivalent)")

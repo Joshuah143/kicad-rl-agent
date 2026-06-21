@@ -326,6 +326,37 @@ PARTS: dict[str, PartSpec] = {
         "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm_DRV8871", "DRV8871",
         PackageType.SMD, 1.20, 0.87, (3.9, 4.9), role="motor_driver",
     ),
+    # --- Switching-regulator controller ICs (buck / boost) ------------- #
+    # These need MANY external interacting parts (input/output caps, a power
+    # inductor on SW, a feedback divider, and -- for a non-synchronous buck --
+    # a catch Schottky diode). Differentiated package/cost/current so choice
+    # between the two bucks matters (tiny SOT-23-6 vs. big 3A TO-220-5).
+    "buck_mp1584": _spec(
+        "buck_mp1584", "Regulator_Switching:MP1584EN",
+        "Package_TO_SOT_SMD:SOT-23-6", "MP1584EN",
+        PackageType.SMD, 0.35, 0.9, (2.9, 2.8), role="buck_controller",
+    ),
+    "buck_lm2596": _spec(
+        "buck_lm2596", "Regulator_Switching:LM2596S-ADJ",
+        "Package_TO_SOT_THT:TO-220-5_Vertical", "LM2596S-ADJ",
+        PackageType.THT, 0.60, 0.93, (10.0, 4.5), role="buck_controller",
+    ),
+    "boost_tps61023": _spec(
+        "boost_tps61023", "Regulator_Switching:TPS61023",
+        "Package_TO_SOT_SMD:SOT-23-6", "TPS61023",
+        PackageType.SMD, 0.45, 0.88, (2.9, 2.8), role="boost_controller",
+    ),
+    # --- Power inductors (alternatives for converter SW node) ----------- #
+    # 3 differentiated power inductors: value / size / current / cost spread so
+    # the inductor choice is a real lever (small 4.7uH vs. big 22uH).
+    "inductor_4u7_power": _spec(
+        "inductor_4u7_power", "Device:L", "Inductor_SMD:L_Taiyo-Yuden_NR-50xx", "4.7uH",
+        PackageType.SMD, 0.18, 0.92, (5.2, 5.2), role="inductor",
+    ),
+    "inductor_22uh_power": _spec(
+        "inductor_22uh_power", "Device:L", "Inductor_SMD:L_Bourns-SRR1210A", "22uH",
+        PackageType.SMD, 0.35, 0.86, (12.0, 12.0), role="inductor",
+    ),
     # --- Misc ---------------------------------------------------------- #
     "mounting_hole_m2": _spec(
         "mounting_hole_m2", "Mechanical:MountingHole", "MountingHole:MountingHole_2.2mm_M2", "M2",

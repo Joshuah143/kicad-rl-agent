@@ -1,0 +1,36 @@
+name: boost_5v
+description: "Step-up (boost) regulator: 3.3 V in -> 5 V out. Assemble a complete boost converter around the controller IC."
+requirements:
+  - "A boost controller IC from VIN (3.3V) to a 5V output rail"
+  - "Input capacitor on VIN to GND"
+  - "A power inductor on the switch (SW) node from VIN"
+  - "Output capacitor on the 5V rail to GND"
+  - "A feedback resistor divider: one resistor VOUT->FB, one resistor FB->GND"
+  - "A Schottky rectifier diode from SW to the 5V output rail"
+  - "EN connected (e.g. tied to VIN to enable the converter)"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 6.0
+  cost_weight: 1.0
+  size_weight: 0.5
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 3.00
+allowed_parts:
+  - boost_tps61023
+  - inductor_4u7_power
+  - inductor_10uh_power
+  - inductor_22uh_power
+  - diode_schottky_sod123
+  - diode_schottky_sma
+  - cap_0805_10u
+  - cap_1206_10u
+  - cap_0805_1u
+  - cap_0603_100n
+  - resistor_0402
+  - resistor_0603
+  - resistor_0805
+  - test_point_smd

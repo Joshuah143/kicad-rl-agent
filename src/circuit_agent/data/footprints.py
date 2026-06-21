@@ -143,6 +143,12 @@ FOOTPRINTS: dict[str, FootprintDef] = {
     "Package_TO_SOT_SMD:SOT-223-3_TabPin2": _fp(
         "Package_TO_SOT_SMD:SOT-223-3_TabPin2", PackageType.SMD, (6.5, 7.0), True, "sot223"
     ),
+    "Package_TO_SOT_SMD:SOT-23-6": _fp(
+        "Package_TO_SOT_SMD:SOT-23-6", PackageType.SMD, (2.9, 2.8), True, "sot23-6"
+    ),
+    "Package_TO_SOT_THT:TO-220-5_Vertical": _fp(
+        "Package_TO_SOT_THT:TO-220-5_Vertical", PackageType.THT, (10.0, 4.5), True, "to220-5"
+    ),
     "Package_TO_SOT_SMD:TO-252-2": _fp(
         "Package_TO_SOT_SMD:TO-252-2", PackageType.SMD, (6.6, 6.1), True, "dpak"
     ),
@@ -184,6 +190,13 @@ FOOTPRINTS: dict[str, FootprintDef] = {
     ),
     "Inductor_SMD:L_0603_1608Metric": _fp(
         "Inductor_SMD:L_0603_1608Metric", PackageType.SMD, (1.6, 0.8), True, "0603"
+    ),
+    # --- power inductors for switching converters (differentiated sizes) -- #
+    "Inductor_SMD:L_Bourns-SRR1210A": _fp(
+        "Inductor_SMD:L_Bourns-SRR1210A", PackageType.SMD, (12.0, 12.0), True, "power_inductor"
+    ),
+    "Inductor_SMD:L_Taiyo-Yuden_NR-50xx": _fp(
+        "Inductor_SMD:L_Taiyo-Yuden_NR-50xx", PackageType.SMD, (5.2, 5.2), True, "power_inductor"
     ),
     "Resistor_SMD:R_1206_3216Metric_Polyfuse": _fp(
         "Resistor_SMD:R_1206_3216Metric_Polyfuse", PackageType.SMD, (3.2, 1.6), True, "1206"

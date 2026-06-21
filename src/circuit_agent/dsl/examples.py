@@ -321,6 +321,53 @@ def build():
 '''
 
 
+_BUCK_3V3 = '''
+def build():
+    c = Circuit("buck_3v3", description="12V to 3.3V non-synchronous buck converter")
+    u1 = c.add_part_from_db("U1", "buck_mp1584")
+    cin = c.add_part_from_db("C1", "cap_0805_10u", value="10u")
+    cout = c.add_part_from_db("C2", "cap_0805_10u", value="10u")
+    l1 = c.add_part_from_db("L1", "inductor_10uh_power", value="10uH")
+    d1 = c.add_part_from_db("D1", "diode_schottky_sma", value="SS34")
+    rtop = c.add_part_from_db("R1", "resistor_0603", value="68k")
+    rbot = c.add_part_from_db("R2", "resistor_0603", value="10k")
+    # VIN: controller VIN + input cap + EN (always enabled)
+    c.net("VIN").connect(u1, "1").connect(cin, "1").connect(u1, "5")
+    # SW node: controller SW, inductor near end, catch diode cathode (pin1=K)
+    c.net("SW").connect(u1, "2").connect(l1, "1").connect(d1, "1")
+    # Output 3.3V rail: inductor far end, output cap, divider top
+    c.net("+3V3").connect(l1, "2").connect(cout, "1").connect(rtop, "1")
+    # Feedback: divider midpoint to FB
+    c.net("FB").connect(u1, "4").connect(rtop, "2").connect(rbot, "1")
+    # Ground: controller GND, input/output caps, catch diode anode (pin2=A), divider bottom
+    c.net("GND").connect(u1, "3").connect(cin, "2").connect(cout, "2").connect(d1, "2").connect(rbot, "2")
+    return c
+'''
+
+_BOOST_5V = '''
+def build():
+    c = Circuit("boost_5v", description="3.3V to 5V boost converter")
+    u1 = c.add_part_from_db("U1", "boost_tps61023")
+    cin = c.add_part_from_db("C1", "cap_0805_10u", value="10u")
+    cout = c.add_part_from_db("C2", "cap_0805_10u", value="10u")
+    l1 = c.add_part_from_db("L1", "inductor_4u7_power", value="4.7uH")
+    d1 = c.add_part_from_db("D1", "diode_schottky_sma", value="SS34")
+    rtop = c.add_part_from_db("R1", "resistor_0603", value="100k")
+    rbot = c.add_part_from_db("R2", "resistor_0603", value="33k")
+    # VIN: controller VIN + input cap + EN (always enabled)
+    c.net("VIN").connect(u1, "5").connect(cin, "1").connect(u1, "4").connect(l1, "1")
+    # SW node: controller SW, inductor far end, rectifier diode anode (pin2=A)
+    c.net("SW").connect(u1, "1").connect(l1, "2").connect(d1, "2")
+    # Output 5V rail: controller VOUT, rectifier cathode (pin1=K), output cap, divider top
+    c.net("+5V").connect(u1, "6").connect(d1, "1").connect(cout, "1").connect(rtop, "1")
+    # Feedback: divider midpoint to FB
+    c.net("FB").connect(u1, "3").connect(rtop, "2").connect(rbot, "1")
+    # Ground: controller GND, input/output caps, divider bottom
+    c.net("GND").connect(u1, "2").connect(cin, "2").connect(cout, "2").connect(rbot, "2")
+    return c
+'''
+
+
 EXAMPLE_PROGRAMS: dict[str, str] = {
     "led_resistor": _LED_RESISTOR.strip() + "\n",
     "ldo_3v3": _LDO_3V3.strip() + "\n",
@@ -343,6 +390,8 @@ EXAMPLE_PROGRAMS: dict[str, str] = {
     "load_switch_pmos": _LOAD_SWITCH_PMOS.strip() + "\n",
     "usb_c_sink_basic": _USB_C_SINK_BASIC.strip() + "\n",
     "cost_capped_sensor": _COST_CAPPED_SENSOR.strip() + "\n",
+    "buck_3v3": _BUCK_3V3.strip() + "\n",
+    "boost_5v": _BOOST_5V.strip() + "\n",
 }
 
 

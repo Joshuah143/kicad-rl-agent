@@ -36,11 +36,23 @@ _W_FLOATING_EN = 1.0
 _W_LED_RESISTOR = 1.0
 _W_MOSFET_GATE = 1.0
 _W_FLYBACK = 1.0
+# Switching-converter completeness (graded across MANY interacting parts).
+# Weighted heavily so that an incomplete converter scores MUCH lower than a
+# complete one. Each missing element below contributes a fraction of this.
+# Large relative to the other rules so that dropping several converter elements
+# materially moves the electrical_rules fraction (an incomplete converter must
+# score notably lower than a complete one, even after a smaller part count makes
+# the design marginally cheaper/smaller).
+_W_CONVERTER = 14.0
 
 # Symbols that behave like a 3-terminal regulator/LDO for the caps heuristic.
 _REGULATOR_SYMBOL_TAGS = ("AP2112", "MCP1700", "XC6206", "AP1117", "LM7805")
 # Motor-driver / inductive-load symbols for the flyback-diode heuristic.
 _MOTOR_SYMBOL_TAGS = ("DRV8833", "DRV8871")
+# Switching-converter controller symbols (buck = non-synchronous, needs a catch
+# diode; boost). Detected by symbol tag so the converter completeness checks fire.
+_BUCK_SYMBOL_TAGS = ("MP1584", "LM2596")
+_BOOST_SYMBOL_TAGS = ("TPS61023",)
 
 
 def _is_ground_net(name: str) -> bool:
@@ -88,6 +100,7 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
         + _W_LED_RESISTOR
         + _W_MOSFET_GATE
         + _W_FLYBACK
+        + _W_CONVERTER
     )
 
     # Build lookup of which (ref,pin) is on which net.
@@ -302,6 +315,120 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
                 )
             )
 
+    # --- switching converter completeness (buck / boost) (WARNING, graded) ---
+    # A switching converter is correct only when MANY parts are present and
+    # wired together: input cap on VIN, a power inductor on SW, output cap on
+    # the regulated rail, a 2-resistor feedback divider (VOUT->FB and FB->GND),
+    # EN connected, and -- for a non-synchronous buck -- a catch Schottky diode
+    # on SW->GND (cathode to SW). Each missing element is a WARNING and a slice
+    # of _W_CONVERTER, so an incomplete converter scores materially lower than a
+    # complete one. Never FATAL: detection is heuristic.
+    converters = [
+        c
+        for c in model.components
+        if c.symbol
+        and any(tag in c.symbol for tag in (_BUCK_SYMBOL_TAGS + _BOOST_SYMBOL_TAGS))
+    ]
+    for conv in converters:
+        is_buck = any(tag in (conv.symbol or "") for tag in _BUCK_SYMBOL_TAGS)
+        # Slices of the converter weight. Buck has 6 checks; boost 5 (no catch
+        # diode). Distribute the weight evenly across the applicable checks so a
+        # complete converter scores the full _W_CONVERTER and each miss hurts.
+        n_checks = 6 if is_buck else 5
+        slice_w = _W_CONVERTER / float(n_checks * max(1, len(converters)))
+
+        pin_net = {
+            pindef.name: _net_of_refpin(model, f"{conv.ref}.{pindef.number}")
+            for pindef in symbols_db.symbol_pins(conv.symbol)
+        }
+        vin_net = pin_net.get("VIN")
+        sw_net = pin_net.get("SW")
+        fb_net = pin_net.get("FB")
+        en_net = pin_net.get("EN")
+        # The regulated output rail: a boost exposes VOUT directly; for a buck it
+        # is the far end of the power inductor whose near end sits on SW.
+        vout_net = pin_net.get("VOUT")
+        if vout_net is None and sw_net is not None:
+            vout_net = _inductor_far_net(model, sw_net)
+
+        # (1) input cap on VIN -> GND
+        if not (vin_net and _has_cap_to_ground(model, vin_net, ground_nets)):
+            deductions += slice_w
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="converter_missing_input_cap",
+                    message=f"Converter {conv.ref} has no input capacitor on VIN to GND",
+                    refs=[conv.ref],
+                )
+            )
+        # (2) power inductor on SW
+        if not (sw_net and _has_inductor_on_net(model, sw_net)):
+            deductions += slice_w
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="converter_missing_inductor",
+                    message=f"Converter {conv.ref} has no power inductor on its SW node",
+                    refs=[conv.ref],
+                )
+            )
+        # (3) output cap on the regulated rail -> GND
+        if not (vout_net and _has_cap_to_ground(model, vout_net, ground_nets)):
+            deductions += slice_w
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="converter_missing_output_cap",
+                    message=f"Converter {conv.ref} has no output capacitor on its output rail to GND",
+                    refs=[conv.ref],
+                )
+            )
+        # (4) feedback resistor divider: VOUT->FB and FB->GND (two resistors)
+        if not (
+            fb_net
+            and _has_feedback_divider(model, fb_net, vout_net, ground_nets)
+        ):
+            deductions += slice_w
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="converter_missing_fb_divider",
+                    message=(
+                        f"Converter {conv.ref} has no feedback resistor divider "
+                        "(need VOUT->FB and FB->GND)"
+                    ),
+                    refs=[conv.ref],
+                )
+            )
+        # (5) EN connected (not floating)
+        if en_net is None and not task.metadata.get("allow_floating_en"):
+            deductions += slice_w
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="converter_floating_enable",
+                    message=f"Converter {conv.ref} EN pin is not connected",
+                    refs=[conv.ref],
+                )
+            )
+        # (6) BUCK ONLY: catch/freewheel Schottky diode on SW->GND (cathode to SW)
+        if is_buck and not (
+            sw_net and _has_catch_diode(model, sw_net, ground_nets)
+        ):
+            deductions += slice_w
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="buck_missing_catch_diode",
+                    message=(
+                        f"Non-synchronous buck {conv.ref} has no catch/freewheel "
+                        "Schottky diode on SW to GND (cathode to SW)"
+                    ),
+                    refs=[conv.ref],
+                )
+            )
+
     # --- 5V/3V3 short (FATAL) ---
     if _has_rail_short(model):
         deductions += _W_RAIL_SHORT
@@ -323,6 +450,7 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
         "led_count": len(leds),
         "mosfet_count": len(mosfets),
         "motor_load_count": len(motor_loads),
+        "converter_count": len(converters),
         "bad_resistor_values": bad_res,
         "bad_capacitor_values": bad_cap,
     }
@@ -475,6 +603,97 @@ def _has_resistor_on_net(model: CircuitModel, net_name: str) -> bool:
 def _has_series_resistor_on_net(model: CircuitModel, net_name: str) -> bool:
     """True if a resistor sits on ``net_name`` (series current-limit heuristic)."""
     return _has_resistor_on_net(model, net_name)
+
+
+# --------------------------------------------------------------------------- #
+# Switching-converter detection helpers
+# --------------------------------------------------------------------------- #
+_INDUCTOR_SYMBOLS = ("Device:L", "Device:L_Small")
+_DIODE_SYMBOLS = ("Device:D", "Device:D_Schottky")
+
+
+def _has_inductor_on_net(model: CircuitModel, net_name: str) -> bool:
+    """True if any inductor has a pin on ``net_name``."""
+    for comp in model.components:
+        if comp.symbol not in _INDUCTOR_SYMBOLS:
+            continue
+        nets1 = set(_nets_for_pin(model, f"{comp.ref}.1"))
+        nets2 = set(_nets_for_pin(model, f"{comp.ref}.2"))
+        if net_name in nets1 or net_name in nets2:
+            return True
+    return False
+
+
+def _inductor_far_net(model: CircuitModel, near_net: str) -> Optional[str]:
+    """Return the net on the *other* pin of an inductor whose one pin is ``near_net``.
+
+    Used to find a buck's regulated output rail: the inductor bridges SW (near)
+    and VOUT (far).
+    """
+    for comp in model.components:
+        if comp.symbol not in _INDUCTOR_SYMBOLS:
+            continue
+        nets1 = set(_nets_for_pin(model, f"{comp.ref}.1"))
+        nets2 = set(_nets_for_pin(model, f"{comp.ref}.2"))
+        if near_net in nets1:
+            for n in sorted(nets2):
+                if n != near_net:
+                    return n
+        if near_net in nets2:
+            for n in sorted(nets1):
+                if n != near_net:
+                    return n
+    return None
+
+
+def _has_feedback_divider(
+    model: CircuitModel,
+    fb_net: str,
+    vout_net: Optional[str],
+    ground_nets: set[str],
+) -> bool:
+    """True if a two-resistor divider sets FB: one R from VOUT->FB, one FB->GND.
+
+    Presence-only (not value-checked). Requires a resistor bridging the FB net
+    and the regulated output rail, AND a (different) resistor bridging FB and
+    ground.
+    """
+    top_ok = False
+    bottom_ok = False
+    top_ref: Optional[str] = None
+    for comp in model.components:
+        if comp.symbol not in ("Device:R", "Device:R_Small"):
+            continue
+        nets1 = set(_nets_for_pin(model, f"{comp.ref}.1"))
+        nets2 = set(_nets_for_pin(model, f"{comp.ref}.2"))
+        touches_fb = fb_net in nets1 or fb_net in nets2
+        if not touches_fb:
+            continue
+        touches_gnd = bool(nets1 & ground_nets) or bool(nets2 & ground_nets)
+        touches_vout = bool(vout_net) and (vout_net in nets1 or vout_net in nets2)
+        if touches_vout and not top_ok:
+            top_ok = True
+            top_ref = comp.ref
+            continue
+        if touches_gnd and comp.ref != top_ref:
+            bottom_ok = True
+    return top_ok and bottom_ok
+
+
+def _has_catch_diode(model: CircuitModel, sw_net: str, ground_nets: set[str]) -> bool:
+    """True if a (Schottky) catch diode bridges SW and GND with cathode (pin 1) to SW.
+
+    The diode symbols are pin 1 = K (cathode), pin 2 = A (anode). A freewheel
+    catch diode for a buck has its cathode on SW and anode on GND.
+    """
+    for comp in model.components:
+        if comp.symbol not in _DIODE_SYMBOLS:
+            continue
+        k_nets = set(_nets_for_pin(model, f"{comp.ref}.1"))  # cathode
+        a_nets = set(_nets_for_pin(model, f"{comp.ref}.2"))  # anode
+        if sw_net in k_nets and bool(a_nets & ground_nets):
+            return True
+    return False
 
 
 def _has_rail_short(model: CircuitModel) -> bool:

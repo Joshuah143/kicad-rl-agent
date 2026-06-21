@@ -31,6 +31,10 @@ Env vars honored:
   - KICAD_RL_TASKS_DIR     : directory of task YAMLs (else ../tasks).
   - KICAD_RL_DISABLE_ERC   : any truthy value -> skip KiCad ERC (faster
                              rollouts). Default: auto-detect kicad-cli.
+  - KICAD_RL_RECORD_SVG    : any truthy value -> also record the full schematic
+                             SVG in EvaluationResult.info (large; off by default
+                             to avoid bloating recorded training states). The
+                             compact info["circuit"] summary is always recorded.
 """
 
 from __future__ import annotations
@@ -121,6 +125,44 @@ def _extract_answer_text(answer) -> str:
     return str(answer)
 
 
+def _read_schematic_svg(res: dict) -> str | None:
+    """Read the produced schematic SVG into a string (best effort).
+
+    The verifier writes ``schematic.svg`` into ``out_dir`` and records its path
+    under ``res["artifacts"]["svg"]`` (the hand-rolled graph SVG, which is small).
+    Returns the file contents, or ``None`` if it cannot be read.
+    """
+    artifacts = res.get("artifacts") or {}
+    svg_path = artifacts.get("svg")
+    if not svg_path or not os.path.exists(svg_path):
+        return None
+    try:
+        with open(svg_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _circuit_summary(model) -> dict:
+    """Return a compact summary of WHAT was built: component refs + nets.
+
+    Small, JSON-serialisable, and deterministic — so each rollout records the
+    actual design, not just the scalar reward.
+    """
+    components = [
+        {"ref": c.ref, "symbol": c.symbol, "value": c.value}
+        for c in model.components
+    ]
+    nets = {n.name: list(n.connections) for n in model.nets}
+    return {
+        "name": model.name,
+        "component_count": len(model.components),
+        "net_count": len(model.nets),
+        "components": components,
+        "nets": nets,
+    }
+
+
 def grade_program(task_name: str, program_text) -> EvaluationResult:
     """Grade one program against ``task_name`` and return an EvaluationResult.
 
@@ -168,18 +210,37 @@ def grade_program(task_name: str, program_text) -> EvaluationResult:
             f"(raw={raw_reward:.4f}, erc_ran={res.get('erc_ran')}) "
             f"fatal_errors[:3]={top_fatals}"
         )
+        info = {
+            "breakdown": breakdown,
+            "fatal_errors": fatal_errors,
+            "raw_reward": raw_reward,
+            "reward_max": reward_dict.get("reward_max"),
+            "passed": passed,
+            "erc_ran": res.get("erc_ran"),
+        }
+        # Record WHAT the model built (not just the scalar): the produced
+        # schematic SVG and a compact circuit summary. Fail-closed: if anything
+        # here trips, just omit the extra info and keep the reward identical.
+        # The full schematic SVG can be large (KiCad-native export is ~100KB+),
+        # which would bloat every training rollout's recorded state. Record it
+        # only when explicitly enabled (KICAD_RL_RECORD_SVG); the compact circuit
+        # summary below is always recorded so you can still see WHAT was built.
+        if _truthy(os.environ.get("KICAD_RL_RECORD_SVG")):
+            try:
+                svg_text = _read_schematic_svg(res)
+                if svg_text:
+                    info["schematic_svg"] = svg_text
+            except Exception:  # noqa: BLE001 - never let recording affect grading
+                pass
+        try:
+            info["circuit"] = _circuit_summary(model)
+        except Exception:  # noqa: BLE001
+            pass
         return EvaluationResult(
             reward=reward01,
             done=True,
             content=content,
-            info={
-                "breakdown": breakdown,
-                "fatal_errors": fatal_errors,
-                "raw_reward": raw_reward,
-                "reward_max": reward_dict.get("reward_max"),
-                "passed": passed,
-                "erc_ran": res.get("erc_ran"),
-            },
+            info=info,
         )
     except Exception as exc:  # noqa: BLE001 - FAIL CLOSED, any failure -> 0
         return EvaluationResult(

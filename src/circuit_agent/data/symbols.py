@@ -172,6 +172,45 @@ SYMBOLS: dict[str, SymbolDef] = {
     # --- additional power symbols --------------------------------------- #
     "power:+1V8": SymbolDef("power:+1V8", (_p("1", "+1V8", "power_in"),), None, "+1V8 rail"),
     "power:VM": SymbolDef("power:VM", (_p("1", "VM", "power_in"),), None, "Motor supply rail"),
+    # --- switching-regulator controller ICs (buck / boost) -------------- #
+    "Regulator_Switching:MP1584EN": SymbolDef(
+        "Regulator_Switching:MP1584EN",
+        (
+            _p("1", "VIN", "power_in"),
+            _p("2", "SW", "output"),
+            _p("3", "GND", "power_in"),
+            _p("4", "FB", "input"),
+            _p("5", "EN", "input"),
+            _p("6", "COMP", "passive"),
+        ),
+        "Package_TO_SOT_SMD:SOT-23-6",
+        "MP1584EN non-synchronous buck converter (integrated switch)",
+    ),
+    "Regulator_Switching:LM2596S-ADJ": SymbolDef(
+        "Regulator_Switching:LM2596S-ADJ",
+        (
+            _p("1", "VIN", "power_in"),
+            _p("2", "SW", "output"),
+            _p("3", "GND", "power_in"),
+            _p("4", "FB", "input"),
+            _p("5", "EN", "input"),
+        ),
+        "Package_TO_SOT_THT:TO-220-5_Vertical",
+        "LM2596 3A non-synchronous buck converter",
+    ),
+    "Regulator_Switching:TPS61023": SymbolDef(
+        "Regulator_Switching:TPS61023",
+        (
+            _p("1", "SW", "output"),
+            _p("2", "GND", "power_in"),
+            _p("3", "FB", "input"),
+            _p("4", "EN", "input"),
+            _p("5", "VIN", "power_in"),
+            _p("6", "VOUT", "power_out"),
+        ),
+        "Package_TO_SOT_SMD:SOT-23-6",
+        "TPS61023 boost converter",
+    ),
     # --- inductor / ferrite / fuse (2-pin passives) --------------------- #
     "Device:L": SymbolDef(
         "Device:L", (_p("1", "~"), _p("2", "~")), "Inductor_SMD:L_Bourns-SRR1260", "Inductor"

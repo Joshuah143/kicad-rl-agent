@@ -46,6 +46,9 @@ _TASK_ARCHETYPES: dict[str, str] = {
     "reverse_polarity_protection": "power",
     "load_switch_pmos": "power",
     "buck_converter_support": "power",
+    # switching converters (full assembly: controller + many interacting parts)
+    "buck_3v3": "converter",
+    "boost_5v": "converter",
     # usb
     "usb_c_sink_basic": "usb",
     "usb_c_power_input": "usb",
