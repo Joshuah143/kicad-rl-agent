@@ -1,46 +1,46 @@
-# Dockerfile for the kicad-schematics HUD Environment (remote hosting).
+# Dockerfile for the kicad-schematics HUD Environment (remote / cloud hosting).
 #
-# IMPORTANT: local training/eval needs NO Docker at all — just `cd hud_env &&
-# uv sync` and run `train.py` / `hud eval`. This image is only for hosting the
-# environment remotely (e.g. `hud deploy`, or HUDRuntime/Modal-hosted rollouts).
+# `hud deploy` tarballs THIS directory (hud_env/) as the build context and builds
+# remotely. The main package therefore must live INSIDE this context: deploy.sh
+# vendors ../src, ../tasks, ../pyproject.toml, ../README.md into ./_pkg/ first.
+# Always deploy via `./deploy.sh` (or run the vendor step yourself), never a bare
+# `hud deploy` — otherwise ./_pkg is missing and the build fails.
 #
-# The build context MUST be the REPO ROOT (so the COPY lines below can reach the
-# main package under ../src). Build it with:
-#
-#     docker build -f hud_env/Dockerfile.hud -t kicad-hud-env .
-#
-# (run from the repository root, NOT from inside hud_env/).
+# KiCad (for ERC inside cloud rollouts) is OFF by default to keep the image small
+# and the remote build fast/reliable. Turn it on with:
+#     hud deploy . --build-arg INSTALL_KICAD=1
+# When KiCad is absent the env auto-skips ERC (KICAD_RL_DISABLE_ERC is also set
+# below); the reward still scores graph/electrical/cost/size/availability.
 
 FROM python:3.12-slim
 
 # uv for fast, reproducible installs.
 RUN pip install --no-cache-dir uv
 
-# KiCad CLI so ERC contributes to the reward inside the container. This is a
-# large dependency; drop it (and set KICAD_RL_DISABLE_ERC=1 at runtime) if you
-# want a leaner image and ERC-free rollouts.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends kicad \
-    && rm -rf /var/lib/apt/lists/*
+# Optional KiCad CLI (ERC in cloud rollouts). Off by default; --build-arg INSTALL_KICAD=1 to include.
+ARG INSTALL_KICAD=0
+RUN if [ "$INSTALL_KICAD" = "1" ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends kicad \
+        && rm -rf /var/lib/apt/lists/* ; \
+    fi
 
 WORKDIR /app
 
-# --- main package (kicad-rl-agent) ---------------------------------------
-# Paths are relative to the repo root build context.
-COPY pyproject.toml README.md ./
-COPY src ./src
-COPY tasks ./tasks
+# Vendored main package (kicad-rl-agent) — populated by deploy.sh into hud_env/_pkg.
+COPY _pkg/pyproject.toml _pkg/README.md ./_pkg/
+COPY _pkg/src ./_pkg/src
+COPY _pkg/tasks ./_pkg/tasks
 
-# --- the HUD environment subproject --------------------------------------
-COPY hud_env/env.py hud_env/tasks.py hud_env/pyproject.toml ./hud_env/
+# The HUD environment itself.
+COPY env.py tasks.py ./
 
-# Install the main package + hud-python into the system interpreter. We install
-# directly (not via the hud_env path-dependency project) to keep the image flat.
-RUN uv pip install --system --no-cache . "hud-python[agents]>=0.6.5,<0.7"
+# Install the main package + hud-python into the system interpreter (flat image).
+RUN uv pip install --system --no-cache ./_pkg "hud-python[agents]>=0.6.5,<0.7"
 
-# Tasks live at /app/tasks; point the env there explicitly.
-ENV KICAD_RL_TASKS_DIR=/app/tasks
-WORKDIR /app/hud_env
+# Tasks live in the vendored copy; ERC defaults off (no KiCad unless built in).
+ENV KICAD_RL_TASKS_DIR=/app/_pkg/tasks
+ENV KICAD_RL_DISABLE_ERC=1
 
 # Serve the Environment's tcp JSON-RPC control channel.
 EXPOSE 8765

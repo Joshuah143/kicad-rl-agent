@@ -11,3 +11,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# HUD deploy vendoring artifact
+hud_env/_pkg/
+
+# Local HUD CLI state (registry/taskset ids, eval config)
+hud_env/.hud/
+hud_env/.hud_eval.toml

@@ -125,6 +125,33 @@ def _extract_answer_text(answer) -> str:
     return str(answer)
 
 
+def _strip_code_fence(text: str) -> str:
+    """Return the program body, unwrapping a markdown code fence if present.
+
+    The prompt explicitly allows the model to wrap its answer in a single
+    ```python ... ``` block, so real model output usually IS fenced. Passing the
+    backticks straight to the sandbox is a SyntaxError -> fail-closed reward 0,
+    so we must strip the fence here (mirrors FireworksBackend.extract_code).
+    """
+    if not text:
+        return ""
+    marker = "```"
+    if marker not in text:
+        return text.strip()
+    idx = text.find(marker)
+    rest = text[idx + len(marker):]
+    newline = rest.find("\n")
+    if newline != -1:
+        first_line = rest[:newline].strip().lower()
+        # drop an opening language tag line (```python / ```py / ```)
+        if first_line in ("python", "py", "python3", "") or first_line.isalpha():
+            rest = rest[newline + 1:]
+    end = rest.find(marker)
+    if end != -1:
+        rest = rest[:end]
+    return rest.strip()
+
+
 def _read_schematic_svg(res: dict) -> str | None:
     """Read the produced schematic SVG into a string (best effort).
 
@@ -170,7 +197,7 @@ def grade_program(task_name: str, program_text) -> EvaluationResult:
     grading code path used by the template (and exercised directly by the
     offline smoke test), so what we test is exactly what trains.
     """
-    program = _extract_answer_text(program_text)
+    program = _strip_code_fence(_extract_answer_text(program_text))
 
     # Load the task spec first. A missing/broken task spec is a configuration
     # error, but we still fail closed (reward 0) rather than crash a rollout.

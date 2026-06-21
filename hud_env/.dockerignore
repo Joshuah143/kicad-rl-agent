@@ -1,0 +1,8 @@
+# Keep the deploy build-context tarball small.
+.venv/
+__pycache__/
+*.pyc
+uv.lock
+_pkg/**/__pycache__/
+_pkg/**/*.pyc
+_pkg/.venv/
