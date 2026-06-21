@@ -245,18 +245,24 @@ async def train(args: argparse.Namespace) -> None:
                 f"({rec['step_s']:.0f}s)",
                 flush=True,
             )
-        except Exception as exc:  # keep the overnight run alive across transient failures
+        except Exception as exc:  # keep the run alive across transient/network failures
             consecutive_failures += 1
             rec["ok"] = False
             rec["error"] = f"{type(exc).__name__}: {exc}"
             rec["step_s"] = round(time.time() - t0, 1)
             print(f"[step {step + 1}/{args.steps}] ERROR ({consecutive_failures}): {rec['error']}", flush=True)
+            # Backoff so a network outage / laptop-sleep blip doesn't burn through
+            # steps in seconds; gives the connection time to recover. Each completed
+            # step already checkpointed, so we never lose trained progress.
+            backoff = min(30 * consecutive_failures, 300)
+            print(f"[train] backing off {backoff}s before next attempt...", flush=True)
+            await asyncio.sleep(backoff)
 
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
 
-        if consecutive_failures >= 5:
-            print("[train] 5 consecutive failures — stopping.", flush=True)
+        if consecutive_failures >= 10:
+            print("[train] 10 consecutive failures — stopping (network likely down).", flush=True)
             break
 
     print(f"[train] done. metrics -> {metrics_path}", flush=True)
