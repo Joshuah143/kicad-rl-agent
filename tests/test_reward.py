@@ -145,12 +145,18 @@ def test_reward_shape() -> None:
 
     assert set(out.keys()) == {
         "reward",
+        "reward_max",
+        "reward_normalized",
         "passed",
         "breakdown",
         "fatal_errors",
         "warnings",
         "metrics",
     }
+    # Normalization keys are deterministic floats in the documented range.
+    assert isinstance(out["reward_max"], float)
+    assert isinstance(out["reward_normalized"], float)
+    assert 0.0 <= out["reward_normalized"] <= 1.0
     assert set(out["breakdown"].keys()) == {
         "schema_valid",
         "erc",

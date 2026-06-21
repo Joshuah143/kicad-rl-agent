@@ -311,6 +311,34 @@ keys):
 
 ---
 
+## Training with HUD
+
+This repo doubles as a **[HUD](https://hud.ai) environment**: the deterministic verifier above is the
+*grader*, so an agent that emits a `build()` program is scored on a normalized 0–1 reward, and that
+signal drives **GRPO** RL training. The environment lives in [`hud_env/`](hud_env/) as its own uv
+project (Python 3.12 — `hud-python` requires `<3.13`) with a path dependency on this package.
+
+```bash
+cd hud_env
+uv sync                                          # Python 3.12 + hud-python + this package
+hud login                                        # or: hud set HUD_API_KEY=...
+hud models fork Qwen/Qwen3-4B --name kicad-rl    # pick a trainable gateway model
+hud eval tasks.py claude --task-ids usb_c_5v_led --group 3   # sanity-check the env
+uv run train.py --local --steps 10 --group 8     # kick off GRPO training
+```
+
+- **Grader** = `verify_design` → `reward_normalized` (0–1); malformed agent output fails closed to 0.
+- **Reward shaping**: GRPO learns from *within-group* reward variance — aim for a ~0.2–0.5 mean per
+  task (tune objective weights / difficulty). Set `KICAD_RL_DISABLE_ERC=1` for faster rollouts.
+- **Model note**: HUD's trainable gateway models are Qwen3-family by default; **Gemma is not
+  pre-configured** — for Gemma use the Fireworks path (`cookbooks/fireworks-rl-training`) with a
+  validated training shape.
+- **Compute**: rollouts run locally (`--local`) or on HUD/Modal boxes; trainer GPUs are managed.
+
+Full setup + training guide: [`hud_env/README.md`](hud_env/README.md).
+
+---
+
 ## Repository layout
 
 ```
@@ -327,6 +355,7 @@ scripts/          rollout_once.py, validate_design.py, export_design.py
 train_or_rollout.py   headline entrypoint
 tasks/            *.yaml task specs
 tests/            pytest suite
+hud_env/          HUD environment (grader = verifier) + Path-A GRPO training (train.py)
 ```
 
 ---

@@ -1,0 +1,17 @@
+[project]
+name = "kicad-hud-env"
+version = "0.1.0"
+# hud-python caps python at <3.13, so this subproject pins 3.12 while the main
+# kicad-rl-agent package stays on 3.13. The path dependency below keeps them in
+# sync without forcing the main repo down to 3.12.
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "hud-python[agents]>=0.6.5,<0.7",
+    "kicad-rl-agent",
+]
+
+[tool.uv.sources]
+kicad-rl-agent = { path = "..", editable = true }
+
+[tool.uv]
+package = false

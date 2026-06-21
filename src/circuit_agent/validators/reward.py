@@ -157,6 +157,27 @@ def compute_reward(
     total = sum(breakdown.values())
     reward = round(max(0.0, total), 4)
 
+    # --- normalization -------------------------------------------------------
+    # The maximum achievable reward for THIS run: each component maxes at
+    # weight*1.0. Only count ERC when it actually ran and the critic when a
+    # critic result was provided (otherwise those components are absent, not
+    # merely zero, and would unfairly depress the normalized score).
+    reward_max = (
+        _SCHEMA_WEIGHT
+        + obj.graph_rule_weight
+        + obj.electrical_rule_weight
+        + obj.cost_weight
+        + obj.size_weight
+        + obj.availability_weight
+        + (obj.erc_weight if erc_ran else 0.0)
+        + (obj.llm_critic_weight if critic is not None else 0.0)
+    )
+    if reward_max <= 0.0:
+        reward_normalized = 0.0
+    else:
+        reward_normalized = round(_clamp01(reward / reward_max), 6)
+    reward_max = round(reward_max, 6)
+
     passed = (
         schema_valid
         and not fatal_errors
@@ -173,6 +194,8 @@ def compute_reward(
 
     return {
         "reward": reward,
+        "reward_max": reward_max,
+        "reward_normalized": reward_normalized,
         "passed": passed,
         "breakdown": breakdown,
         "fatal_errors": fatal_errors,
