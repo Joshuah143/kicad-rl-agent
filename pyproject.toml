@@ -22,7 +22,11 @@ fireworks = ["requests"]
 modal = ["modal"]
 # 'cairosvg' is only needed for high-fidelity SVG -> PDF rendering of the visual.
 pdf = ["cairosvg"]
-# developer tooling
+# developer tooling (kept as an extra for `pip install -e .[dev]` compatibility)
+dev = ["pytest"]
+
+[dependency-groups]
+# Installed by default with `uv sync`, so `uv run pytest` works out of the box.
 dev = ["pytest"]
 
 [tool.setuptools]

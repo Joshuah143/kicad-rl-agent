@@ -90,21 +90,30 @@ Anthropic/OpenAI-vendor code anywhere**.
 
 ## Install
 
-Requires **Python 3.11+**.
+Requires **Python 3.11+**. Managed with **[uv](https://docs.astral.sh/uv/)**; a committed `uv.lock` + `.python-version` pin the environment for reproducible installs.
 
 ```bash
-# core runtime (mock policy + local validators + SVG visual): pydantic + pyyaml only
-pip install -e .
+# uv (recommended): builds .venv, installs the editable package + dev tools (pytest)
+uv sync                      # core runtime: mock policy + local validators + SVG visual
+uv sync --extra fireworks    # + requests  -> real Fireworks sampling + critic
+uv sync --extra modal        # + modal     -> KiCad/validator sandbox
+uv sync --all-extras         # everything (fireworks, modal, pdf)
 
-# or grab the out-of-the-box set (core + Fireworks client + tests):
-pip install -r requirements.txt
-
-# optional extras, install on demand:
-pip install -e ".[fireworks]"   # requests  -> real Fireworks sampling + critic
-pip install -e ".[modal]"       # modal     -> KiCad/validator sandbox
-pip install -e ".[pdf]"         # cairosvg  -> high-fidelity SVG -> PDF
-pip install -e ".[dev]"         # pytest
+# run anything inside the managed env:
+uv run pytest
+uv run python scripts/rollout_once.py --task tasks/usb_c_5v_led.yaml --backend mock --n_candidates 3 --out runs/test
 ```
+
+<details><summary>pip alternative</summary>
+
+```bash
+pip install -e .                 # core: pydantic + pyyaml
+pip install -e ".[fireworks]"    # requests  -> real Fireworks sampling + critic
+pip install -e ".[modal]"        # modal     -> KiCad/validator sandbox
+pip install -e ".[pdf]"          # cairosvg  -> high-fidelity SVG -> PDF
+pip install -e ".[dev]"          # pytest
+```
+</details>
 
 The entry scripts and tests prepend `src/` to `sys.path`, so they run **without** an install too.
 
