@@ -96,84 +96,170 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--steps", type=int, default=10, help="number of optimizer steps")
     p.add_argument("--group", type=int, default=8, help="GRPO group size (rollouts per task)")
     p.add_argument("--learning-rate", type=float, default=1e-5, help="optimizer learning rate")
+    p.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="sampling budget per rollout")
+    p.add_argument("--tasks", type=str, default=None,
+                   help="comma-separated task slugs to train on (default: all)")
+    p.add_argument("--out", type=str, default="runs",
+                   help="directory for metrics.jsonl + summary")
     mode = p.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--local",
-        dest="local",
-        action="store_true",
-        help="serve env.py locally via LocalRuntime (default)",
-    )
-    mode.add_argument(
-        "--remote",
-        dest="local",
-        action="store_false",
-        help="use the platform-hosted taskset + HUDRuntime",
-    )
+    mode.add_argument("--local", dest="local", action="store_true",
+                      help="serve env.py locally via LocalRuntime (default)")
+    mode.add_argument("--remote", dest="local", action="store_false",
+                      help="use the platform-hosted taskset + HUDRuntime")
     p.set_defaults(local=True)
     return p.parse_args()
 
 
-def build_taskset_and_runtime(local: bool):
-    """Return (taskset, runtime) for either local or remote training."""
+def build_taskset_and_runtime(local: bool, tasks_filter: "set[str] | None"):
+    """Return (taskset, runtime, slugs) for either local or remote training."""
     from hud import Taskset, LocalRuntime, HUDRuntime
 
     if local:
-        # Build the taskset in-process and serve env.py in a child process.
         from tasks import tasks as task_list
 
         taskset = Taskset("kicad-schematics", task_list)
         runtime = LocalRuntime("env.py")
     else:
-        # Pull the registered taskset from the platform; run on a hosted env.
+        # HUDRuntime is REQUIRED for training: the agent runs remotely next to the
+        # env and the rollouts carry per-token ids/logprobs ("trainable turns").
+        # HostedRuntime returns rewards only -> trainer.step: "no trainable turns".
+        # (The cookbook's load_taskset_and_runtime uses HUDRuntime for remote.)
         taskset = Taskset.from_api(TASKSET)
         runtime = HUDRuntime()
-    return taskset, runtime
+
+    if tasks_filter:
+        kept = [t for t in taskset if (getattr(t, "slug", None) or getattr(t, "id", "")) in tasks_filter]
+        taskset = Taskset("kicad-schematics", kept)
+
+    slugs = [getattr(t, "slug", None) or getattr(t, "id", "?") for t in taskset]
+    return taskset, runtime, slugs
 
 
-def build_agent():
+def build_agent(max_tokens: int):
     """Create the GRPO policy agent routed through the HUD gateway."""
     from hud.agents import create_agent
 
-    # The trainer needs per-token ids back from each rollout; the cookbook sets
-    # this via the OpenAI-compatible extra_body on the completion call.
+    # return_token_ids is REQUIRED for training (records token ids + logprobs).
     return create_agent(
         MODEL,
         completion_kwargs={
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": max_tokens,
             "extra_body": {"return_token_ids": True},
         },
     )
 
 
+def _step_metrics(batch, slugs, group):
+    """Compute GRPO-relevant metrics for one step's rollouts.
+
+    ``batch`` is task-major then group, so consecutive ``group`` runs are one
+    task's GRPO group. Within-group reward spread is the signal GRPO learns from:
+    a task whose group is all-same (saturated ~1 or all-fail ~0) contributes ~no
+    gradient; learnable tasks sit in between.
+    """
+    import statistics as st
+
+    rewards = []
+    for r in batch:
+        v = getattr(r, "reward", None)
+        rewards.append(float(v) if v is not None else 0.0)
+
+    groups = [rewards[i:i + group] for i in range(0, len(rewards), group)]
+    per_task = {}
+    within = []
+    learnable = []
+    for i, g in enumerate(groups):
+        if not g:
+            continue
+        slug = slugs[i] if i < len(slugs) else f"group_{i}"
+        m = st.mean(g)
+        sd = st.pstdev(g) if len(g) > 1 else 0.0
+        per_task[slug] = {"mean": round(m, 4), "std": round(sd, 4), "max": round(max(g), 4)}
+        within.append(sd)
+        if 0.0 < m < 1.0 and sd > 0.02:
+            learnable.append(slug)
+
+    return {
+        "n_rollouts": len(rewards),
+        "n_valid": sum(1 for x in rewards if x > 0.0),
+        "mean_reward": round(st.mean(rewards), 4) if rewards else 0.0,
+        "std_reward": round(st.pstdev(rewards), 4) if len(rewards) > 1 else 0.0,
+        "max_reward": round(max(rewards), 4) if rewards else 0.0,
+        "within_group_var": round(st.mean(within), 4) if within else 0.0,
+        "learnable_task_count": len(learnable),
+        "learnable_tasks": learnable,
+        "per_task": per_task,
+    }
+
+
 async def train(args: argparse.Namespace) -> None:
+    import json
+    import time
+    from pathlib import Path
     from hud import Job, TrainingClient
 
-    agent = build_agent()
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    metrics_path = out / "metrics.jsonl"
+    tasks_filter = set(s.strip() for s in args.tasks.split(",")) if args.tasks else None
+
+    agent = build_agent(args.max_tokens)
     trainer = TrainingClient(MODEL)
-    taskset, runtime = build_taskset_and_runtime(args.local)
+    taskset, runtime, slugs = build_taskset_and_runtime(args.local, tasks_filter)
 
-    # One Job groups all the steps' rollouts under a single run on the platform.
-    # NOTE: Job.start is async — must be awaited (returns a coroutine otherwise).
+    print(f"[train] model={MODEL} tasks={len(slugs)} group={args.group} "
+          f"steps={args.steps} max_tokens={args.max_tokens} -> {metrics_path}", flush=True)
+
     job = await Job.start("kicad-grpo", group=args.group)
+    job_url = f"https://hud.ai/jobs/{getattr(job, 'id', '?')}"
+    print(f"[train] job: {job_url}", flush=True)
 
+    start = time.time()
+    consecutive_failures = 0
     for step in range(args.steps):
-        # Roll out every task `group` times; the finished Job carries the Runs.
-        job = await taskset.run(
-            agent,
-            runtime=runtime,
-            group=args.group,
-            job=job,
-        )
+        t0 = time.time()
+        rec = {"step": step + 1, "of": args.steps, "elapsed_s": round(time.time() - start, 1)}
+        try:
+            prev = len(job.runs)
+            job = await taskset.run(agent, runtime=runtime, group=args.group, job=job)
+            batch = list(job.runs)[prev:]
 
-        # Our reward is already normalized 0..1, so reward_scale=1.0 (default).
-        # `job.runs` is the Sequence[Run] the trainer's step() consumes.
-        # NOTE: TrainingClient.step is async — must be awaited.
-        result = await trainer.step(
-            job.runs,
-            learning_rate=args.learning_rate,
-            group_size=args.group,
-        )
-        print(f"[step {step + 1}/{args.steps}] mean_reward={job.reward!r} optim={result!r}")
+            metrics = _step_metrics(batch, slugs, args.group)
+            result = await trainer.step(
+                job.runs[prev:],
+                learning_rate=args.learning_rate,
+                group_size=args.group,
+            )
+            rec.update(metrics)
+            rec["optim"] = repr(result)[:300]
+            rec["step_s"] = round(time.time() - t0, 1)
+            rec["ok"] = True
+            consecutive_failures = 0
+
+            print(
+                f"[step {step + 1}/{args.steps}] "
+                f"mean={metrics['mean_reward']:.3f} max={metrics['max_reward']:.3f} "
+                f"within_grp_var={metrics['within_group_var']:.3f} "
+                f"learnable={metrics['learnable_task_count']}/{len(slugs)} "
+                f"valid={metrics['n_valid']}/{metrics['n_rollouts']} "
+                f"({rec['step_s']:.0f}s)",
+                flush=True,
+            )
+        except Exception as exc:  # keep the overnight run alive across transient failures
+            consecutive_failures += 1
+            rec["ok"] = False
+            rec["error"] = f"{type(exc).__name__}: {exc}"
+            rec["step_s"] = round(time.time() - t0, 1)
+            print(f"[step {step + 1}/{args.steps}] ERROR ({consecutive_failures}): {rec['error']}", flush=True)
+
+        with metrics_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+
+        if consecutive_failures >= 5:
+            print("[train] 5 consecutive failures — stopping.", flush=True)
+            break
+
+    print(f"[train] done. metrics -> {metrics_path}", flush=True)
 
 
 def main() -> None:
