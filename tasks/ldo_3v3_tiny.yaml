@@ -1,0 +1,27 @@
+name: ldo_3v3_tiny
+description: A 3.3V LDO in the smallest footprint to fit a dense board.
+requirements:
+  - "A 3.3V linear regulator from +5V to +3V3"
+  - "Input capacitor on VIN to GND"
+  - "Output capacitor on VOUT to GND"
+  - "Minimize total area"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 0.5
+  size_weight: 4.0
+  availability_weight: 0.5
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_area_mm2: 12.0
+allowed_parts:
+  - ldo_3v3_ap2112
+  - ldo_3v3_mcp1700
+  - ldo_3v3_xc6206
+  - ldo_3v3_sot223
+  - cap_0402_100n
+  - cap_0603_1u
+  - cap_0805_1u
+  - test_point_smd

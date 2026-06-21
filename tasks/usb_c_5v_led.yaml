@@ -20,5 +20,7 @@ preferences:
 allowed_parts:
   - usb_c_receptacle_hro
   - resistor_0603
+  - resistor_0805
   - led_0603
+  - led_0805
   - test_point_smd

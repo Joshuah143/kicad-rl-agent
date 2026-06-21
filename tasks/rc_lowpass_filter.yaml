@@ -1,0 +1,23 @@
+name: rc_lowpass_filter
+description: A single-pole RC low-pass filter on a signal line.
+requirements:
+  - "A series resistor on the signal line"
+  - "A shunt capacitor from the filtered node to GND"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 2.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_area_mm2: 8.0
+allowed_parts:
+  - resistor_0402
+  - resistor_0603
+  - resistor_0805
+  - cap_0402_100n
+  - cap_0603_100n
+  - test_point_smd

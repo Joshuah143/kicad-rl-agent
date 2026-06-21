@@ -24,10 +24,44 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 _SCHEMA_WEIGHT = 1.0
 # Reference area (mm^2) for the smooth size score when no max_area is set.
 _SIZE_REFERENCE_MM2 = 100.0
+# Reference cost (USD) for the smooth cost score when no budget is set.
+_COST_REFERENCE_USD = 2.0
 
 
 def _clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
+
+
+def _hand_solder_offenders(model: "CircuitModel", min_class: str) -> list[str]:
+    """Return refs whose footprint is finer than ``min_class`` or non-hand-solderable.
+
+    A component offends the ``min_hand_solderable`` preference when either:
+      * its footprint chip size_class is *finer* (smaller rank) than ``min_class``
+        (e.g. a 0402 part on a board that requires >= 0805), or
+      * its footprint is explicitly not ``hand_solderable`` (fine-pitch QFN/LGA).
+    THT and chip classes at/above the minimum are fine. Components with no
+    determinable footprint are not penalized (handled elsewhere).
+    """
+    from circuit_agent.data import footprints as _fp
+
+    min_rank = _fp.size_class_rank(min_class)
+    offenders: list[str] = []
+    for comp in model.components:
+        if not comp.footprint:
+            continue
+        fp = _fp.get_footprint(comp.footprint)
+        if fp is None:
+            continue
+        # Explicitly non-hand-solderable fine-pitch parts always offend.
+        if not fp.hand_solderable:
+            offenders.append(comp.ref)
+            continue
+        # Chip classes finer than the required minimum offend.
+        if min_rank is not None:
+            rank = _fp.size_class_rank(fp.size_class)
+            if rank is not None and rank < min_rank:
+                offenders.append(comp.ref)
+    return offenders
 
 
 def compute_reward(
@@ -88,25 +122,41 @@ def compute_reward(
         warnings.append(issue.message)
 
     # --- cost ----------------------------------------------------------------
+    # GRADED: cheaper designs score higher even when comfortably under budget,
+    # so two electrically-valid builds that differ only in part choice get
+    # different rewards. Over-budget still strongly penalized + warned.
     total_cost = float(bom.get("total_cost_usd", 0.0) or 0.0)
     max_cost = prefs.max_bom_cost_usd
-    if max_cost is None or total_cost <= max_cost:
-        cost_score = 1.0
-    else:
+    if max_cost is not None and total_cost > max_cost:
+        # Over budget: scale down by how far over (strong penalty).
         cost_score = _clamp01(max_cost / total_cost) if total_cost > 0 else 1.0
         warnings.append(f"BOM cost ${total_cost:.4f} exceeds budget ${max_cost:.4f}")
+    else:
+        # Under budget (or no budget): reward LOWER cost. Reference is the budget
+        # when one is set, otherwise a fixed reference. cost_score == 1 at $0 and
+        # decreases linearly toward 0 at the reference.
+        reference = max_cost if max_cost is not None else _COST_REFERENCE_USD
+        if reference and reference > 0:
+            cost_score = _clamp01(1.0 - total_cost / reference)
+        else:
+            cost_score = 1.0
     cost_component = obj.cost_weight * cost_score
 
     # --- size ----------------------------------------------------------------
+    # GRADED + MONOTONIC: smaller total area => higher size_score, always.
     total_area = float(size.get("total_area_mm2", 0.0) or 0.0)
     tht_count = int(size.get("tht_count", 0) or 0)
     smt_count = int(size.get("smt_count", 0) or 0)
     if prefs.max_area_mm2 is not None:
-        if total_area <= prefs.max_area_mm2:
-            size_score = 1.0
-        else:
+        if total_area > prefs.max_area_mm2:
             size_score = _clamp01(prefs.max_area_mm2 / total_area) if total_area > 0 else 1.0
             warnings.append(f"Total area {total_area:.2f} mm^2 exceeds max {prefs.max_area_mm2:.2f} mm^2")
+        else:
+            # Under the cap: still reward being smaller. 1.0 at zero area,
+            # decreasing toward 0.5 at exactly the cap (so honoring the cap is
+            # always better than busting it, while smaller is better than bigger).
+            reference = prefs.max_area_mm2
+            size_score = _clamp01(1.0 - 0.5 * total_area / reference) if reference > 0 else 1.0
     else:
         # Smooth decreasing function; reference == _SIZE_REFERENCE_MM2.
         size_score = 1.0 / (1.0 + total_area / _SIZE_REFERENCE_MM2)
@@ -121,6 +171,20 @@ def compute_reward(
         penalty = _clamp01(1.0 - 0.1 * smt_count)
         size_score *= penalty
         warnings.append(f"THT preferred but design has {smt_count} SMD part(s)")
+
+    # Hand-solderability preference: penalize parts finer than the minimum class
+    # (or explicitly non-hand-solderable fine-pitch parts). Folded into the size
+    # component (the "package" dimension of the reward).
+    if prefs.min_hand_solderable:
+        offenders = _hand_solder_offenders(model, prefs.min_hand_solderable)
+        if offenders:
+            penalty = _clamp01(1.0 - 0.25 * len(offenders))
+            size_score *= penalty
+            warnings.append(
+                f"Hand-solderability: {len(offenders)} part(s) finer than "
+                f"{prefs.min_hand_solderable} or not hand-solderable: "
+                f"{', '.join(sorted(offenders))}"
+            )
     size_component = obj.size_weight * _clamp01(size_score)
 
     # --- availability --------------------------------------------------------

@@ -1,0 +1,30 @@
+name: rp2040_minimal
+description: A minimal RP2040 with decoupling, crystal, QSPI flash, boot and reset.
+requirements:
+  - "RP2040 powered from +3V3 with decoupling capacitors"
+  - "12MHz crystal on the clock pins"
+  - "QSPI flash on the QSPI bus"
+  - "BOOT button on QSPI_SD0"
+  - "Reset network on the run pin"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 6.00
+allowed_parts:
+  - mcu_rp2040
+  - qspi_flash_w25q
+  - crystal_12mhz_smd
+  - button_smd_4p
+  - resistor_0402
+  - resistor_0603
+  - cap_0402_100n
+  - cap_0603_100n
+  - cap_0805_1u
+  - test_point_smd

@@ -50,14 +50,20 @@ from circuit_agent.task import load_task, TaskSpec
 
 env = Environment(name="kicad-schematics")
 
-# The 5 shipped task base names (each has a tasks/<name>.yaml).
-TASK_NAMES = [
-    "usb_c_5v_led",
-    "led_resistor",
-    "ldo_3v3",
-    "i2c_sensor_breakout",
-    "mcu_minimal",
-]
+# Shipped task base names (each has a tasks/<name>.yaml). The authoritative
+# taskset lives in tasks.py; this list is informational and is derived from the
+# tasks/ directory at import time so it always tracks the YAML files on disk.
+def _discover_task_names() -> list[str]:
+    try:
+        return sorted(p.stem for p in tasks_dir().glob("*.yaml"))
+    except Exception:  # pragma: no cover - defensive
+        return [
+            "usb_c_5v_led",
+            "led_resistor",
+            "ldo_3v3",
+            "i2c_sensor_breakout",
+            "mcu_minimal",
+        ]
 
 
 def _truthy(val: str | None) -> bool:
@@ -74,6 +80,9 @@ def tasks_dir() -> Path:
     if env_dir:
         return Path(env_dir).expanduser().resolve()
     return Path(__file__).resolve().parent.parent / "tasks"
+
+
+TASK_NAMES = _discover_task_names()
 
 
 def load_taskspec(task_name: str) -> TaskSpec:

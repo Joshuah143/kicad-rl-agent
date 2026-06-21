@@ -20,5 +20,6 @@ preferences:
 allowed_parts:
   - i2c_sensor_generic
   - resistor_0603
+  - resistor_0805
   - cap_0603_100n
   - test_point_smd

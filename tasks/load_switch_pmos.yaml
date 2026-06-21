@@ -1,0 +1,26 @@
+name: load_switch_pmos
+description: A high-side P-MOSFET load switch with gate resistor and pulldown.
+requirements:
+  - "A high-side P-channel MOSFET load switch on a +5V rail"
+  - "Gate series resistor"
+  - "Gate pulldown resistor so the switch defaults off"
+  - "Output decoupling capacitor to GND"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 2.00
+allowed_parts:
+  - mosfet_p_ao3401_sot23
+  - mosfet_n_2n7002_sot23
+  - resistor_0402
+  - resistor_0603
+  - cap_0603_1u
+  - cap_0805_1u
+  - test_point_smd

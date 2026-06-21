@@ -33,6 +33,14 @@ _W_LDO_CAPS = 1.0
 _W_MCU_DECOUPLE = 1.0
 _W_RAIL_SHORT = 4.0
 _W_FLOATING_EN = 1.0
+_W_LED_RESISTOR = 1.0
+_W_MOSFET_GATE = 1.0
+_W_FLYBACK = 1.0
+
+# Symbols that behave like a 3-terminal regulator/LDO for the caps heuristic.
+_REGULATOR_SYMBOL_TAGS = ("AP2112", "MCP1700", "XC6206", "AP1117", "LM7805")
+# Motor-driver / inductive-load symbols for the flyback-diode heuristic.
+_MOTOR_SYMBOL_TAGS = ("DRV8833", "DRV8871")
 
 
 def _is_ground_net(name: str) -> bool:
@@ -77,6 +85,9 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
         + _W_MCU_DECOUPLE
         + _W_RAIL_SHORT
         + _W_FLOATING_EN
+        + _W_LED_RESISTOR
+        + _W_MOSFET_GATE
+        + _W_FLYBACK
     )
 
     # Build lookup of which (ref,pin) is on which net.
@@ -150,10 +161,16 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
                 )
 
     # --- LDO input/output caps (WARNING) ---
-    ldos = [c for c in model.components if c.symbol and "AP2112" in c.symbol]
+    # AP2112 keeps its specific pin map (VIN=1, VOUT=5); other regulators use
+    # the symbol pin etypes (power_in VIN / power_out VOUT) so the heuristic
+    # generalizes across the LDO family without hard-coding every pinout.
+    ldos = [
+        c
+        for c in model.components
+        if c.symbol and any(tag in c.symbol for tag in _REGULATOR_SYMBOL_TAGS)
+    ]
     for ldo in ldos:
-        vin_net = _net_of_refpin(model, f"{ldo.ref}.1")
-        vout_net = _net_of_refpin(model, f"{ldo.ref}.5")
+        vin_net, vout_net = _regulator_in_out_nets(model, ldo)
         if vin_net and not _has_cap_to_ground(model, vin_net, ground_nets):
             deductions += _W_LDO_CAPS * 0.25
             issues.append(
@@ -174,7 +191,9 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
                     refs=[ldo.ref],
                 )
             )
-        # floating EN pin (WARNING)
+        # floating EN pin (WARNING) — only the AP2112 in our catalog exposes EN.
+        if "AP2112" not in (ldo.symbol or ""):
+            continue
         en_net = _net_of_refpin(model, f"{ldo.ref}.3")
         if en_net is None and not task.metadata.get("allow_floating_en"):
             deductions += _W_FLOATING_EN * 0.5
@@ -208,6 +227,81 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
                 )
             )
 
+    # --- LED series resistor (WARNING) ---
+    # Every LED should have a series resistor on its anode (or be in a circuit
+    # that limits current). Heuristic: a resistor must share a net with the LED
+    # anode pin. LEDs explicitly marked as needing no resistor are skipped.
+    leds = [c for c in model.components if c.symbol in ("Device:LED",)]
+    for led in leds:
+        if led.role in ("no_series_r", "addressable"):
+            continue
+        anode_net = _net_of_refpin(model, f"{led.ref}.A")
+        if anode_net and not _has_series_resistor_on_net(model, anode_net):
+            deductions += _W_LED_RESISTOR * (1.0 / max(1, len(leds)))
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="led_missing_series_resistor",
+                    message=f"LED {led.ref} has no series current-limiting resistor on its anode",
+                    refs=[led.ref],
+                )
+            )
+
+    # --- MOSFET gate resistor / pulldown (WARNING) ---
+    # A switching MOSFET's gate should not float: expect a resistor (gate series
+    # or pulldown) sharing the gate net.
+    mosfets = [c for c in model.components if c.symbol in ("Device:Q_NMOS_GSD", "Device:Q_PMOS_GSD")]
+    for q in mosfets:
+        gate_net = _net_of_refpin(model, f"{q.ref}.1")
+        if gate_net is None:
+            deductions += _W_MOSFET_GATE * (1.0 / max(1, len(mosfets)))
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="mosfet_gate_floating",
+                    message=f"MOSFET {q.ref} gate is not connected to any net",
+                    refs=[q.ref],
+                )
+            )
+        elif not _has_resistor_on_net(model, gate_net):
+            deductions += _W_MOSFET_GATE * (1.0 / max(1, len(mosfets)))
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="mosfet_gate_no_resistor",
+                    message=(
+                        f"MOSFET {q.ref} gate net {gate_net} has no gate/pulldown resistor"
+                    ),
+                    refs=[q.ref],
+                )
+            )
+
+    # --- flyback / freewheel diode across an inductive load (WARNING) ---
+    # When a motor driver (inductive load) is present, expect a diode in the
+    # design to clamp inductive kickback. Coarse: any diode anywhere satisfies it.
+    motor_loads = [
+        c
+        for c in model.components
+        if c.symbol and any(tag in c.symbol for tag in _MOTOR_SYMBOL_TAGS)
+    ]
+    if motor_loads:
+        has_diode = any(
+            c.symbol in ("Device:D", "Device:D_Schottky", "Device:D_TVS") for c in model.components
+        )
+        if not has_diode:
+            deductions += _W_FLYBACK * 0.5
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    code="missing_flyback_diode",
+                    message=(
+                        "Inductive load (motor driver) present but no flyback/freewheel "
+                        "diode found to clamp kickback"
+                    ),
+                    refs=[c.ref for c in motor_loads],
+                )
+            )
+
     # --- 5V/3V3 short (FATAL) ---
     if _has_rail_short(model):
         deductions += _W_RAIL_SHORT
@@ -226,6 +320,9 @@ def check(model: CircuitModel, task: TaskSpec) -> ValidatorResult:
         "i2c_nets": sorted(i2c_nets),
         "ldo_count": len(ldos),
         "mcu_count": len(mcus),
+        "led_count": len(leds),
+        "mosfet_count": len(mosfets),
+        "motor_load_count": len(motor_loads),
         "bad_resistor_values": bad_res,
         "bad_capacitor_values": bad_cap,
     }
@@ -342,6 +439,42 @@ def _power_in_nets(model: CircuitModel, ref: str) -> list[str]:
             if net and not _is_ground_net(net):
                 out.append(net)
     return out
+
+
+def _regulator_in_out_nets(model: CircuitModel, comp) -> tuple[Optional[str], Optional[str]]:
+    """Return (VIN net, VOUT net) for a regulator component.
+
+    AP2112 uses its explicit pin numbers (1=VIN, 5=VOUT). For every other
+    regulator the symbol pin etypes/names are used: the power_in pin named VIN
+    and the power_out pin named VOUT.
+    """
+    if "AP2112" in (comp.symbol or ""):
+        return _net_of_refpin(model, f"{comp.ref}.1"), _net_of_refpin(model, f"{comp.ref}.5")
+    vin_net: Optional[str] = None
+    vout_net: Optional[str] = None
+    for pindef in symbols_db.symbol_pins(comp.symbol):
+        if pindef.name == "VIN":
+            vin_net = vin_net or _net_of_refpin(model, f"{comp.ref}.{pindef.number}")
+        elif pindef.name == "VOUT":
+            vout_net = vout_net or _net_of_refpin(model, f"{comp.ref}.{pindef.number}")
+    return vin_net, vout_net
+
+
+def _has_resistor_on_net(model: CircuitModel, net_name: str) -> bool:
+    """True if any resistor has a pin on ``net_name``."""
+    for comp in model.components:
+        if comp.symbol not in ("Device:R", "Device:R_Small"):
+            continue
+        nets1 = set(_nets_for_pin(model, f"{comp.ref}.1"))
+        nets2 = set(_nets_for_pin(model, f"{comp.ref}.2"))
+        if net_name in nets1 or net_name in nets2:
+            return True
+    return False
+
+
+def _has_series_resistor_on_net(model: CircuitModel, net_name: str) -> bool:
+    """True if a resistor sits on ``net_name`` (series current-limit heuristic)."""
+    return _has_resistor_on_net(model, net_name)
 
 
 def _has_rail_short(model: CircuitModel) -> bool:

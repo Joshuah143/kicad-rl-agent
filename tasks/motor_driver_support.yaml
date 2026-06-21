@@ -1,0 +1,27 @@
+name: motor_driver_support
+description: A DRV8833 motor driver with decoupling and bulk capacitor on VM.
+requirements:
+  - "A dual H-bridge motor driver powered from a motor supply VM"
+  - "Decoupling capacitor on VM to GND"
+  - "Bulk capacitor on VM to GND"
+  - "Flyback protection appropriate for an inductive motor load"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 4.00
+allowed_parts:
+  - motor_driver_drv8833
+  - motor_driver_drv8871
+  - diode_schottky_sma
+  - diode_schottky_sod123
+  - cap_0603_100n
+  - cap_0805_10u
+  - cap_tant_10u
+  - test_point_smd

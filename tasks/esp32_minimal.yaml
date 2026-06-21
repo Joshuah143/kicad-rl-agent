@@ -1,0 +1,28 @@
+name: esp32_minimal
+description: A minimal ESP32-WROOM module with decoupling, EN and BOOT networks.
+requirements:
+  - "ESP32-WROOM-32 powered from +3V3"
+  - "Bulk and decoupling capacitors on the 3V3 rail to GND"
+  - "EN pullup with RC delay"
+  - "BOOT (IO0) button to GND"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 5.00
+allowed_parts:
+  - mcu_esp32
+  - button_smd_4p
+  - resistor_0402
+  - resistor_0603
+  - cap_0402_100n
+  - cap_0603_100n
+  - cap_0805_10u
+  - cap_tant_10u
+  - test_point_smd

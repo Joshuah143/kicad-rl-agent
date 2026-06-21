@@ -1,0 +1,24 @@
+name: jellybean_only_led
+description: A current-limited LED that must use only widely-stocked jellybean parts.
+requirements:
+  - "One LED with a series current-limiting resistor"
+  - "LED cathode returns to GND"
+  - "Use only high-availability parts"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 0.5
+  size_weight: 0.5
+  availability_weight: 4.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  min_availability: 0.94
+allowed_parts:
+  - resistor_0402
+  - resistor_0603
+  - led_0402
+  - led_0603
+  - led_0805
+  - test_point_smd

@@ -1,0 +1,26 @@
+name: i2c_dual_sensor
+description: Two I2C sensors sharing one bus with a single pair of pullups.
+requirements:
+  - "Two I2C sensors powered from +3V3 sharing SDA and SCL"
+  - "One pullup resistor on SDA to +3V3"
+  - "One pullup resistor on SCL to +3V3"
+  - "A decoupling capacitor near each sensor VDD to GND"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 8.00
+allowed_parts:
+  - i2c_sensor_generic
+  - i2c_sensor_bme280
+  - resistor_0402
+  - resistor_0603
+  - cap_0402_100n
+  - cap_0603_100n
+  - test_point_smd

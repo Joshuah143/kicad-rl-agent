@@ -1,0 +1,26 @@
+name: cost_capped_sensor
+description: An I2C sensor breakout built to the lowest cost under a tight budget.
+requirements:
+  - "Generic I2C sensor powered from +3V3"
+  - "Pullup resistor on SDA to +3V3"
+  - "Pullup resistor on SCL to +3V3"
+  - "Decoupling capacitor on the sensor VDD to GND"
+  - "Keep BOM cost as low as possible"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 4.0
+  size_weight: 0.5
+  availability_weight: 0.5
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 1.50
+allowed_parts:
+  - i2c_sensor_generic
+  - resistor_0402
+  - resistor_0603
+  - cap_0402_100n
+  - cap_0603_100n
+  - test_point_smd

@@ -1,0 +1,26 @@
+name: buck_converter_support
+description: Support passives around a buck regulator IC (input cap, inductor, output cap).
+requirements:
+  - "Input bulk capacitor on VIN to GND"
+  - "A power inductor on the switch node"
+  - "Output bulk capacitor on VOUT to GND"
+  - "A catch/freewheel Schottky diode"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.5
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 3.00
+allowed_parts:
+  - inductor_10uh_power
+  - diode_schottky_sma
+  - diode_schottky_sod123
+  - cap_0805_10u
+  - cap_1206_10u
+  - cap_tant_10u
+  - test_point_smd

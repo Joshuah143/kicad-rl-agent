@@ -1,0 +1,27 @@
+name: handsolder_led
+description: A current-limited LED that must be comfortably hand-solderable (>=0805).
+requirements:
+  - "One LED with a series current-limiting resistor"
+  - "LED cathode returns to GND"
+  - "All parts must be hand-solderable at 0805 or larger"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 0.5
+  size_weight: 3.0
+  availability_weight: 0.5
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  min_hand_solderable: "0805"
+allowed_parts:
+  - resistor_0402
+  - resistor_0603
+  - resistor_0805
+  - resistor_1206
+  - led_0402
+  - led_0603
+  - led_0805
+  - led_1206
+  - test_point_smd

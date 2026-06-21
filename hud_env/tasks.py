@@ -10,32 +10,74 @@ each a stable ``slug`` plus a ``columns`` mapping (handy for the HUD UI / API).
 
 Underscore-prefixed intermediates are skipped by the scanner; only the public
 ``tasks`` list (and the re-exported ``env``) is collected.
+
+The taskset covers ALL shipped tasks (the original 5 + the expanded set). Each
+task is tagged with an ``archetype`` column (size|cost|avail|handsolder|power|
+usb|signal|mcu|motor) describing what component-choice lever it stresses.
 """
 
 from __future__ import annotations
 
 from env import env, kicad_design  # noqa: F401 - env MUST be importable/re-exported
 
-# Verified against hud-python 0.6.6: calling the template returns a hud.Task
-# whose ``.slug`` and ``.columns`` are plain settable fields.
-_usb = kicad_design(task_name="usb_c_5v_led")
-_usb.slug = "usb-c-5v-led"
-_usb.columns = {"task": "usb_c_5v_led"}
+# Map each task base name -> archetype. The list is the authoritative taskset.
+_TASK_ARCHETYPES: dict[str, str] = {
+    # original 5
+    "usb_c_5v_led": "usb",
+    "led_resistor": "signal",
+    "ldo_3v3": "power",
+    "i2c_sensor_breakout": "signal",
+    "mcu_minimal": "mcu",
+    # size-stressed
+    "led_blinky_tiny": "size",
+    "decoupling_tiny": "size",
+    # cost-stressed
+    "ldo_3v3_lowcost": "cost",
+    "cost_capped_sensor": "cost",
+    # availability-stressed
+    "ldo_3v3_highavail": "avail",
+    "jellybean_only_led": "avail",
+    # hand-solder / THT
+    "handsolder_led": "handsolder",
+    "thru_hole_psu": "handsolder",
+    # power
+    "ldo_3v3_tiny": "power",
+    "ldo_3v3_highcurrent": "power",
+    "reverse_polarity_protection": "power",
+    "load_switch_pmos": "power",
+    "buck_converter_support": "power",
+    # usb
+    "usb_c_sink_basic": "usb",
+    "usb_c_power_input": "usb",
+    # signal
+    "i2c_dual_sensor": "signal",
+    "button_debounce": "signal",
+    "uart_header": "signal",
+    "rc_lowpass_filter": "signal",
+    "resistor_divider": "signal",
+    # mcu
+    "rp2040_minimal": "mcu",
+    "esp32_minimal": "mcu",
+    "stm32_minimal_swd": "mcu",
+    # motor
+    "motor_driver_support": "motor",
+}
 
-_led = kicad_design(task_name="led_resistor")
-_led.slug = "led-resistor"
-_led.columns = {"task": "led_resistor"}
 
-_ldo = kicad_design(task_name="ldo_3v3")
-_ldo.slug = "ldo-3v3"
-_ldo.columns = {"task": "ldo_3v3"}
+def _slug(name: str) -> str:
+    """Turn a task base name into a stable URL-safe slug."""
+    return name.replace("_", "-")
 
-_i2c = kicad_design(task_name="i2c_sensor_breakout")
-_i2c.slug = "i2c-sensor-breakout"
-_i2c.columns = {"task": "i2c_sensor_breakout"}
 
-_mcu = kicad_design(task_name="mcu_minimal")
-_mcu.slug = "mcu-minimal"
-_mcu.columns = {"task": "mcu_minimal"}
+def _mint(name: str, archetype: str):
+    """Mint a single hud.Task for ``name`` with slug + columns set."""
+    task = kicad_design(task_name=name)
+    task.slug = _slug(name)
+    task.columns = {"task": name, "archetype": archetype}
+    return task
 
-tasks = [_usb, _led, _ldo, _i2c, _mcu]
+
+# Public taskset: every shipped task, one Task each.
+tasks = [_mint(name, archetype) for name, archetype in _TASK_ARCHETYPES.items()]
+
+__all__ = ["env", "kicad_design", "tasks"]

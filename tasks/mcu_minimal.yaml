@@ -19,5 +19,6 @@ preferences:
 allowed_parts:
   - mcu_stm32
   - resistor_0603
+  - resistor_0805
   - cap_0603_100n
   - test_point_smd

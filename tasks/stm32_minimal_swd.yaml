@@ -1,0 +1,26 @@
+name: stm32_minimal_swd
+description: A minimal STM32F0 with decoupling, SWD header, reset and boot.
+requirements:
+  - "STM32F030F4 powered from +3V3 with a decoupling capacitor to GND"
+  - "Reset network on NRST (pullup + capacitor)"
+  - "BOOT0 pulldown resistor"
+  - "A 2x5 1.27mm SWD debug header"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: SMD
+  max_bom_cost_usd: 3.50
+allowed_parts:
+  - mcu_stm32
+  - header_swd_2x5_127
+  - resistor_0402
+  - resistor_0603
+  - cap_0402_100n
+  - cap_0603_100n
+  - test_point_smd

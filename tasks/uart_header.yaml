@@ -1,0 +1,23 @@
+name: uart_header
+description: A UART breakout header with series protection resistors.
+requirements:
+  - "A 1x4 header carrying GND, +3V3, TX and RX"
+  - "Series resistor on TX"
+  - "Series resistor on RX"
+objectives:
+  erc_weight: 3.0
+  graph_rule_weight: 2.0
+  electrical_rule_weight: 4.0
+  cost_weight: 1.0
+  size_weight: 1.0
+  availability_weight: 1.0
+  llm_critic_weight: 2.0
+preferences:
+  package_type: THT
+  max_bom_cost_usd: 1.50
+allowed_parts:
+  - header_1x4_254
+  - resistor_0603
+  - resistor_0805
+  - resistor_tht
+  - test_point_smd
