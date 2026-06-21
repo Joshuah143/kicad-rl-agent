@@ -125,31 +125,52 @@ def _extract_answer_text(answer) -> str:
     return str(answer)
 
 
-def _strip_code_fence(text: str) -> str:
-    """Return the program body, unwrapping a markdown code fence if present.
+import re as _re
 
-    The prompt explicitly allows the model to wrap its answer in a single
-    ```python ... ``` block, so real model output usually IS fenced. Passing the
-    backticks straight to the sandbox is a SyntaxError -> fail-closed reward 0,
-    so we must strip the fence here (mirrors FireworksBackend.extract_code).
+
+def _strip_reasoning(text: str) -> str:
+    """Drop a reasoning-model preamble so only the final answer remains.
+
+    The trainable HUD gateway models are mostly reasoning models that emit a long
+    chain-of-thought before the code. Their thoughts contain stray ``` and
+    ``def build`` fragments, so we must cut the preamble BEFORE extracting code:
+      - Qwen3 / DeepSeek style: ``<think> ... </think>`` -> keep after the last close.
+      - gpt-oss "harmony" style: ``<|channel|>analysis<|message|> ... `` then
+        ``<|channel|>final<|message|>`` -> keep the final channel's content.
+    Leaves plain (non-reasoning) output untouched.
+    """
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[-1]
+    if "<|channel|>final<|message|>" in text:
+        text = text.split("<|channel|>final<|message|>")[-1]
+    elif "<|message|>" in text:
+        text = text.rsplit("<|message|>", 1)[-1]
+    # trim a dangling harmony end token if present
+    for tok in ("<|end|>", "<|return|>", "<|im_end|>"):
+        text = text.replace(tok, "")
+    return text
+
+
+def _strip_code_fence(text: str) -> str:
+    """Return the program body: reasoning stripped, final code block extracted.
+
+    The prompt allows a single ```python ... ``` block and the (reasoning) models
+    emit one at the END after thinking. We strip any reasoning preamble, then take
+    the LAST fenced block (the final answer, not a fragment quoted mid-thought);
+    failing a fence, take from the last ``def build`` to the end. Passing raw
+    backticks/thoughts to the sandbox is a SyntaxError -> fail-closed reward 0,
+    which is exactly the all-zero, no-gradient failure this prevents.
     """
     if not text:
         return ""
-    marker = "```"
-    if marker not in text:
-        return text.strip()
-    idx = text.find(marker)
-    rest = text[idx + len(marker):]
-    newline = rest.find("\n")
-    if newline != -1:
-        first_line = rest[:newline].strip().lower()
-        # drop an opening language tag line (```python / ```py / ```)
-        if first_line in ("python", "py", "python3", "") or first_line.isalpha():
-            rest = rest[newline + 1:]
-    end = rest.find(marker)
-    if end != -1:
-        rest = rest[:end]
-    return rest.strip()
+    body = _strip_reasoning(text)
+    blocks = _re.findall(r"```(?:python|py|python3)?\s*\n?(.*?)```", body, _re.DOTALL)
+    if blocks:
+        return blocks[-1].strip()
+    idx = body.rfind("def build")
+    if idx != -1:
+        return body[idx:].strip()
+    return body.strip()
 
 
 def _read_schematic_svg(res: dict) -> str | None:

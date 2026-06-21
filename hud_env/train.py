@@ -73,10 +73,16 @@ import asyncio
 # -----------------------------------------------------------------------------
 # Constants — EDIT THESE.
 # -----------------------------------------------------------------------------
-# A HUD gateway TRAINABLE model name. Forked from Qwen/Qwen3.5-4B (Tinker) via:
-#   hud models fork Qwen/Qwen3.5-4B --name kicad-rl
-# (Re-fork a different trainable base and change this slug to switch policy model.)
-MODEL = "kicad-rl"
+# A HUD gateway TRAINABLE model name. Forked from Qwen/Qwen3-8B (Tinker) via:
+#   hud models fork Qwen/Qwen3-8B --name kicad-rl-8b
+# Qwen3-8B is a REASONING model (emits <think>...</think> then the code); the env
+# grader strips that preamble and MAX_TOKENS must be large enough for it to finish
+# thinking AND emit the program. (Qwen3.5-4B rambled without converging -> all 0.)
+MODEL = "kicad-rl-8b"
+
+# Sampling budget per rollout. Reasoning models need ~3k tokens to think + emit
+# code; too low truncates them mid-thought -> unparseable -> reward 0.
+MAX_TOKENS = 4096
 
 # Remote taskset name on the HUD platform (used with --remote). Push tasks with
 #   hud sync tasks.py
@@ -132,7 +138,10 @@ def build_agent():
     # this via the OpenAI-compatible extra_body on the completion call.
     return create_agent(
         MODEL,
-        completion_kwargs={"extra_body": {"return_token_ids": True}},
+        completion_kwargs={
+            "max_tokens": MAX_TOKENS,
+            "extra_body": {"return_token_ids": True},
+        },
     )
 
 
@@ -144,7 +153,8 @@ async def train(args: argparse.Namespace) -> None:
     taskset, runtime = build_taskset_and_runtime(args.local)
 
     # One Job groups all the steps' rollouts under a single run on the platform.
-    job = Job.start(name="kicad-grpo", group=args.group)
+    # NOTE: Job.start is async — must be awaited (returns a coroutine otherwise).
+    job = await Job.start("kicad-grpo", group=args.group)
 
     for step in range(args.steps):
         # Roll out every task `group` times; the finished Job carries the Runs.
@@ -157,7 +167,8 @@ async def train(args: argparse.Namespace) -> None:
 
         # Our reward is already normalized 0..1, so reward_scale=1.0 (default).
         # `job.runs` is the Sequence[Run] the trainer's step() consumes.
-        result = trainer.step(
+        # NOTE: TrainingClient.step is async — must be awaited.
+        result = await trainer.step(
             job.runs,
             learning_rate=args.learning_rate,
             group_size=args.group,
